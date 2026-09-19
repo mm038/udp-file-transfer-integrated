@@ -52,4 +52,35 @@ class ControlMessageTest {
 
         assertNotEquals(a.getTransferId(), b.getTransferId());
     }
+
+    @Test
+    void createFinishCarriesSha256Hash() {
+        ControlMessage finish = ControlMessage.createFinish("t-123", "abc123hash");
+        assertEquals(MessageType.FINISH, finish.getType());
+        assertEquals("t-123", finish.getTransferId());
+        assertEquals("abc123hash", finish.getSha256Hex());
+    }
+
+    @Test
+    void finishRoundTripsThroughJson() {
+        ControlMessage finish = ControlMessage.createFinish("t-456", "deadbeef");
+        ControlMessage decoded = ControlMessage.fromJson(finish.toJson());
+        assertEquals(MessageType.FINISH, decoded.getType());
+        assertEquals("deadbeef", decoded.getSha256Hex());
+    }
+
+    @Test
+    void createFinishAckVerifiedTrueHasNoErrorMessage() {
+        ControlMessage ack = ControlMessage.createFinishAck("t-789", true, null);
+        assertEquals(MessageType.FINISH_ACK, ack.getType());
+        assertTrue(ack.isVerified());
+        assertNull(ack.getErrorMessage());
+    }
+
+    @Test
+    void createFinishAckVerifiedFalseCarriesErrorMessage() {
+        ControlMessage ack = ControlMessage.createFinishAck("t-999", false, "SHA-256 mismatch");
+        assertFalse(ack.isVerified());
+        assertEquals("SHA-256 mismatch", ack.getErrorMessage());
+    }
 }

@@ -12,7 +12,7 @@ import java.util.UUID;
  * that would need extra Gson machinery (a TypeAdapter) to figure out
  * which class to decode into before it's even read the message.
  *
- * Not every field is used by every type — e.g. a START_ACK ignores
+ * Not every field is used by every type -- e.g. a START_ACK ignores
  * filename/fileSize/chunkSize. That's an accepted trade-off for
  * simplicity at this message volume (a handful of these per transfer).
  */
@@ -30,10 +30,18 @@ public class ControlMessage {
     private long fileSize;
     private int chunkSize;
 
-    // START_ACK-only fields
+    // START_ACK-only field
     private boolean accepted;
 
-    // Used by START_ACK (when rejected) and ERROR
+    // FINISH-only field: whole-file SHA-256, computed by the sender before
+    // any DATA is sent, carried here so the receiver can compare once it
+    // has reassembled the file (Stage 10).
+    private String sha256Hex;
+
+    // FINISH_ACK-only field: did the receiver's recomputed hash match?
+    private boolean verified;
+
+    // Used by START_ACK (when rejected), FINISH_ACK (when not verified), and ERROR
     private String errorMessage;
 
     /**
@@ -44,11 +52,11 @@ public class ControlMessage {
     public ControlMessage() {
     }
 
-    // Private constructor — external code must use the factory methods
-    // below (createStart, createStartAck, createError), never "new
-    // ControlMessage(...)" directly. This guarantees every message has
-    // a valid type and transferId set correctly for that type, rather
-    // than callers having to remember which fields matter for which type.
+    // Private constructor -- external code must use the factory methods
+    // below, never "new ControlMessage(...)" directly. This guarantees
+    // every message has a valid type and transferId set correctly for
+    // that type, rather than callers having to remember which fields
+    // matter for which type.
     private ControlMessage(MessageType type, String transferId) {
         this.type = type;
         this.transferId = transferId;
@@ -67,6 +75,21 @@ public class ControlMessage {
     public static ControlMessage createStartAck(String transferId, boolean accepted, String errorMessage) {
         ControlMessage msg = new ControlMessage(MessageType.START_ACK, transferId);
         msg.accepted = accepted;
+        msg.errorMessage = errorMessage;
+        return msg;
+    }
+
+    /** Sender uses this once every chunk has been sent and acknowledged, carrying the whole-file hash. */
+    public static ControlMessage createFinish(String transferId, String sha256Hex) {
+        ControlMessage msg = new ControlMessage(MessageType.FINISH, transferId);
+        msg.sha256Hex = sha256Hex;
+        return msg;
+    }
+
+    /** Receiver uses this to report whether its recomputed hash matched the sender's. */
+    public static ControlMessage createFinishAck(String transferId, boolean verified, String errorMessage) {
+        ControlMessage msg = new ControlMessage(MessageType.FINISH_ACK, transferId);
+        msg.verified = verified;
         msg.errorMessage = errorMessage;
         return msg;
     }
@@ -95,7 +118,7 @@ public class ControlMessage {
         return msg;
     }
 
-    // Getters only — no setters. Once built via a factory method, a
+    // Getters only -- no setters. Once built via a factory method, a
     // ControlMessage doesn't change. This is deliberate immutability.
     public MessageType getType() { return type; }
     public String getTransferId() { return transferId; }
@@ -103,6 +126,8 @@ public class ControlMessage {
     public long getFileSize() { return fileSize; }
     public int getChunkSize() { return chunkSize; }
     public boolean isAccepted() { return accepted; }
+    public String getSha256Hex() { return sha256Hex; }
+    public boolean isVerified() { return verified; }
     public String getErrorMessage() { return errorMessage; }
 
     @Override

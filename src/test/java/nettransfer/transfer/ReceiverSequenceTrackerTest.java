@@ -77,4 +77,30 @@ class ReceiverSequenceTrackerTest {
 
         assertEquals(0, tracker.getCumulativeAckSeqNum(), "none of the discarded arrivals should have advanced state");
     }
+
+    @Test
+    void transferCompleteOnceAllChunksReceived() {
+        ReceiverSequenceTracker tracker = new ReceiverSequenceTracker(3);
+        assertFalse(tracker.isTransferComplete());
+        tracker.onDataReceived(0);
+        assertFalse(tracker.isTransferComplete());
+        tracker.onDataReceived(1);
+        assertFalse(tracker.isTransferComplete());
+        tracker.onDataReceived(2);
+        assertTrue(tracker.isTransferComplete());
+    }
+
+    @Test
+    void transferNotCompleteWithGapEvenIfLaterChunkArrived() {
+        ReceiverSequenceTracker tracker = new ReceiverSequenceTracker(3);
+        tracker.onDataReceived(0);
+        tracker.onDataReceived(2); // out-of-order, discarded per Stage 9
+        assertFalse(tracker.isTransferComplete());
+    }
+
+    @Test
+    void isTransferCompleteThrowsWhenTotalChunksUnknown() {
+        ReceiverSequenceTracker tracker = new ReceiverSequenceTracker(); // legacy no-arg constructor
+        assertThrows(IllegalStateException.class, tracker::isTransferComplete);
+    }
 }
