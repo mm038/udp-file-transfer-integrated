@@ -89,6 +89,13 @@ public class PacketTimeoutTracker {
         return timedOut;
     }
 
+    /** All seqNums currently in flight (sent, not yet acked), ascending order. */
+    public List<Integer> getInFlightSeqNums() {
+        List<Integer> inFlight = new ArrayList<>(sentAtBySeqNum.keySet());
+        Collections.sort(inFlight);
+        return inFlight;
+    }
+
     /** True if this seqNum was sent and not yet acked (regardless of timeout status). */
     public boolean isInFlight(int seqNum) {
         return sentAtBySeqNum.containsKey(seqNum);

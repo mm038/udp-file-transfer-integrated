@@ -100,4 +100,17 @@ class PacketTimeoutTrackerTest {
     void defaultTimeoutConstantIs200() {
         assertEquals(200, PacketTimeoutTracker.DEFAULT_TIMEOUT_MILLIS);
     }
+
+    @Test
+    void getInFlightSeqNumsReturnsOnlyUnackedOnesInOrder() {
+        FakeClock clock = new FakeClock();
+        PacketTimeoutTracker tracker = new PacketTimeoutTracker(200, clock);
+
+        tracker.recordSent(2);
+        tracker.recordSent(0);
+        tracker.recordSent(1);
+        tracker.recordAcked(1);
+
+        assertEquals(List.of(0, 2), tracker.getInFlightSeqNums());
+    }
 }
