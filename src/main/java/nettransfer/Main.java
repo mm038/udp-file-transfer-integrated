@@ -1,114 +1,67 @@
 package nettransfer;
 
 import nettransfer.net.UdpChannel;
-import nettransfer.protocol.ControlMessage;
-import nettransfer.protocol.MessageType;
+import nettransfer.transfer.ReceiverEngine;
+import nettransfer.transfer.SenderEngine;
+import nettransfer.transfer.TransferResult;
 
 import java.net.InetAddress;
-import java.nio.charset.StandardCharsets;
 
 /**
- * STAGE 2 THROWAWAY MAIN.
- *
- * Demonstrates the metadata handshake: sender proposes a transfer via a
- * START message (filename, file size, chunk size), receiver decodes it,
- * decides accept/reject, and replies with START_ACK. Still no real file
- * reading, no DATA packets, no reliability (timeouts/retries/loss handling)
- * — that's later stages. This is the "happy path" handshake only, and will
- * be deleted/replaced once nettransfer.cli.Cli and
- * nettransfer.control.TransferController exist (Stage 12+).
+ * Real CLI entry point, using SenderEngine/ReceiverEngine (Stage 10.5) --
+ * replaces the Stage 2 throwaway handshake-only demo.
  *
  * Usage:
- *   mvn exec:java "-Dexec.mainClass=nettransfer.Main" "-Dexec.args=receiver"
- *   mvn exec:java "-Dexec.mainClass=nettransfer.Main" "-Dexec.args=sender"
+ *   Receiver: mvn exec:java "-Dexec.mainClass=nettransfer.Main" "-Dexec.args=receiver 9000 received.bin"
+ *   Sender:   mvn exec:java "-Dexec.mainClass=nettransfer.Main" "-Dexec.args=sender 9000 mydata.bin"
  *
- * Run the receiver first, in one terminal. Then run the sender in a second
- * terminal.
+ * Run the receiver first, in one terminal, then the sender in a second.
  */
 public class Main {
 
-    private static final int PORT = 9000;
+    private static final int CHUNK_SIZE = 1024;
+    private static final int WINDOW_SIZE = 1; // stop-and-wait default; raise for sliding-window demo
+    private static final int TIMEOUT_MILLIS = 200;
+    private static final int RETRY_LIMIT = 5;
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 1) {
-            System.out.println("Usage: Main <sender|receiver>");
+        if (args.length != 3) {
+            System.out.println("Usage: Main <sender|receiver> <port> <filePath>");
             return;
         }
 
-        if (args[0].equals("receiver")) {
-            runReceiver();
-        } else if (args[0].equals("sender")) {
-            runSender();
+        String mode = args[0];
+        int port = Integer.parseInt(args[1]);
+        String filePath = args[2];
+
+        if (mode.equals("receiver")) {
+            runReceiver(port, filePath);
+        } else if (mode.equals("sender")) {
+            runSender(port, filePath);
         } else {
-            System.out.println("Unknown mode: " + args[0] + " (expected 'sender' or 'receiver')");
+            System.out.println("Unknown mode: " + mode + " (expected 'sender' or 'receiver')");
         }
     }
 
-    private static void runReceiver() throws Exception {
-        System.out.println("[receiver] Binding UDP socket on port " + PORT + " ...");
-        try (UdpChannel channel = new UdpChannel(PORT)) {
-            System.out.println("[receiver] Waiting for a START message...");
-
-            UdpChannel.ReceivedDatagram datagram = channel.receive();
-            String json = new String(datagram.data(), StandardCharsets.UTF_8);
-            ControlMessage start = ControlMessage.fromJson(json);
-
-            System.out.println("[receiver] Got " + start.getType() + " for transfer "
-                    + start.getTransferId() + " -> file=\"" + start.getFilename()
-                    + "\", size=" + start.getFileSize() + " bytes, chunkSize=" + start.getChunkSize());
-
-            // Minimal acceptance check for Stage 2 only. This is NOT the real
-            // command/config validator (that's Stage 12) — just a sanity check
-            // so START_ACK's accept/reject path actually has real logic behind it.
-            boolean chunkSizeOk = start.getChunkSize() > 0 && start.getChunkSize() <= 1024;
-
-            ControlMessage ack;
-            if (chunkSizeOk) {
-                ack = ControlMessage.createStartAck(start.getTransferId(), true, null);
-                System.out.println("[receiver] Accepting transfer " + start.getTransferId());
-            } else {
-                ack = ControlMessage.createStartAck(start.getTransferId(), false,
-                        "chunkSize must be between 1 and 1024, was " + start.getChunkSize());
-                System.out.println("[receiver] Rejecting transfer " + start.getTransferId()
-                        + ": " + ack.getErrorMessage());
-            }
-
-            byte[] ackBytes = ack.toJson().getBytes(StandardCharsets.UTF_8);
-            channel.send(ackBytes, datagram.senderAddress(), datagram.senderPort());
-            System.out.println("[receiver] Sent START_ACK back to "
-                    + datagram.senderAddress() + ":" + datagram.senderPort());
+    private static void runReceiver(int port, String outputFilePath) throws Exception {
+        System.out.println("[receiver] Binding UDP socket on port " + port + " ...");
+        try (UdpChannel channel = new UdpChannel(port)) {
+            System.out.println("[receiver] Waiting for a transfer...");
+            ReceiverEngine receiver = new ReceiverEngine(channel);
+            TransferResult result = receiver.receiveFile(outputFilePath);
+            System.out.println("[receiver] " + result);
         }
     }
 
-    private static void runSender() throws Exception {
+    private static void runSender(int port, String filePath) throws Exception {
         System.out.println("[sender] Opening UDP socket on an ephemeral port...");
         try (UdpChannel channel = new UdpChannel()) {
             InetAddress loopback = InetAddress.getByName("127.0.0.1");
-
-            // Hardcoded example "file" for now — real file reading comes later
-            // (Stage 3 chunking). We just need something to negotiate about.
-            ControlMessage start = ControlMessage.createStart("data.bin", 204800L, 1024);
-
-            byte[] startBytes = start.toJson().getBytes(StandardCharsets.UTF_8);
-            System.out.println("[sender] Sending START for transfer " + start.getTransferId()
-                    + " (\"" + start.getFilename() + "\", " + start.getFileSize() + " bytes, chunkSize="
-                    + start.getChunkSize() + ") to " + loopback + ":" + PORT);
-            channel.send(startBytes, loopback, PORT);
-
-            System.out.println("[sender] Waiting for START_ACK...");
-            UdpChannel.ReceivedDatagram reply = channel.receive();
-            ControlMessage ack = ControlMessage.fromJson(new String(reply.data(), StandardCharsets.UTF_8));
-
-            if (ack.getType() != MessageType.START_ACK) {
-                System.out.println("[sender] Unexpected message type: " + ack.getType());
-                return;
-            }
-
-            if (ack.isAccepted()) {
-                System.out.println("[sender] Transfer " + ack.getTransferId() + " ACCEPTED. Ready to send data (future stage).");
-            } else {
-                System.out.println("[sender] Transfer " + ack.getTransferId() + " REJECTED: " + ack.getErrorMessage());
-            }
+            SenderEngine sender = new SenderEngine(
+                    channel, loopback, port, CHUNK_SIZE, WINDOW_SIZE, TIMEOUT_MILLIS, RETRY_LIMIT);
+            System.out.println("[sender] Sending " + filePath + " to 127.0.0.1:" + port);
+            TransferResult result = sender.sendFile(filePath);
+            System.out.println("[sender] " + result);
         }
     }
 }
