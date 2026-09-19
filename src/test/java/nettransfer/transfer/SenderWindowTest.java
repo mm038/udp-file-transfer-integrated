@@ -92,4 +92,45 @@ class SenderWindowTest {
         window.markSent();
         assertThrows(IllegalStateException.class, window::getNextSeqNumToSend);
     }
+
+    @Test
+    void duplicateAckDoesNotAdvanceBaseTwice() {
+        SenderWindow window = new SenderWindow(5, 1);
+        window.markSent();
+        window.onAckReceived(0);
+        assertEquals(1, window.getBase());
+
+        // the same ACK for seqNum 0 arrives again (e.g. sender's retransmitted
+        // DATA prompted a second, redundant ACK)
+        window.onAckReceived(0);
+        assertEquals(1, window.getBase(), "duplicate ACK must not move base again");
+    }
+
+    @Test
+    void staleAckBelowBaseIsIgnored() {
+        SenderWindow window = new SenderWindow(5, 1);
+        window.markSent();
+        window.onAckReceived(0);
+        assertEquals(1, window.getBase());
+
+        // a stale/delayed ACK for an already-superseded seqNum arrives late
+        window.onAckReceived(0);
+        assertEquals(1, window.getBase(), "stale ACK below base must not move base backward or re-trigger anything");
+    }
+
+    @Test
+    void staleAckDoesNotCorruptSubsequentProgress() {
+        SenderWindow window = new SenderWindow(5, 1);
+        window.markSent();
+        window.onAckReceived(0);
+        window.markSent();
+
+        // a stale ACK for seqNum 0 arrives again, after the window has already moved on
+        window.onAckReceived(0);
+        assertEquals(1, window.getBase(), "stale ACK must not undo progress already made");
+
+        // real progress still works correctly afterward
+        window.onAckReceived(1);
+        assertEquals(2, window.getBase());
+    }
 }
