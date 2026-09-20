@@ -11,11 +11,15 @@ import nettransfer.control.command.CommandProposal;
 import nettransfer.control.command.CommandValidator;
 import nettransfer.control.command.DispatchResult;
 import nettransfer.control.command.TransferConfiguration;
+import nettransfer.llm.GptClient;
+import nettransfer.llm.GptException;
+import nettransfer.llm.InterpretationRequest;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Reader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -27,21 +31,32 @@ public final class TransferCli {
     private final CommandDispatcher dispatcher;
     private final BufferedReader input;
     private final PrintWriter output;
+    private final GptClient gpt;
+    private final List<InterpretationRequest.Turn> clarificationHistory = new ArrayList<>();
+    private UUID pendingRequestId;
     private CommandDispatcher.Selection current = CommandDispatcher.Selection.none();
     private CommandDispatcher.Selection last = CommandDispatcher.Selection.none();
 
     public TransferCli(TransferService service, TransferConfiguration configuration,
                        Reader input, PrintWriter output) {
+        this(service, configuration, input, output, request -> new CommandProposal.Unsupported(
+                "Natural-language interpretation requires a configured GPT client. Use help for direct commands."));
+    }
+
+    /** Both the offline stub and HTTP adapter feed the same deterministic dispatcher. */
+    public TransferCli(TransferService service, TransferConfiguration configuration,
+                       Reader input, PrintWriter output, GptClient gpt) {
         this.service = Objects.requireNonNull(service, "service");
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.input = new BufferedReader(Objects.requireNonNull(input, "input"));
         this.output = Objects.requireNonNull(output, "output");
+        this.gpt = Objects.requireNonNull(gpt, "gpt");
         dispatcher = new CommandDispatcher(new CommandParser(), new CommandValidator(configuration), service);
     }
 
     /** EOF returns once; the launcher closes the service, including an active socket. */
     public void run() throws IOException {
-        output.println("UDP transfer console. Type help for commands; GPT is not connected yet.");
+        output.println("UDP transfer console. Type help for commands; natural-language requests use the configured interpreter.");
         while (true) {
             output.print("transfer> ");
             output.flush();
@@ -69,6 +84,11 @@ public final class TransferCli {
         String[] parts = stripped.split("\\s+", 2);
         String command = parts[0];
         String arguments = parts.length == 2 ? parts[1].strip() : "";
+        // A direct command ends the pending conversation, avoiding stale start intent later.
+        if (List.of("help", "catalog", "exit", "start_transfer", "status").contains(command)
+                || (command.equals("explain") && arguments.startsWith("{"))) {
+            clearClarification();
+        }
         switch (command) {
             case "help" -> help();
             case "catalog" -> catalog();
@@ -83,9 +103,17 @@ public final class TransferCli {
                     return false;
                 }
             }
-            case "start_transfer", "explain" -> dispatch(command, arguments, defaultSelection());
+            case "start_transfer" -> dispatch(command, arguments, defaultSelection());
+            case "explain" -> {
+                if (arguments.startsWith("{")) {
+                    dispatch(command, arguments, defaultSelection());
+                } else {
+                    interpret(stripped);
+                }
+            }
             case "status" -> status(arguments);
-            default -> output.println("UNSUPPORTED_REQUEST: use help for direct commands. Natural-language interpretation is not connected yet.");
+            case "ask" -> interpret(arguments);
+            default -> interpret(stripped);
         }
         output.flush();
         return true;
@@ -119,8 +147,58 @@ public final class TransferCli {
 
     private void dispatch(String command, String arguments, CommandDispatcher.Selection selection) {
         var proposal = new CommandProposal.Calls(List.of(new CommandProposal.ToolCall(command, arguments)));
-        // Each explicit console line is a new Java request; a future model retry must reuse its request ID.
-        DispatchResult result = dispatcher.dispatch(UUID.randomUUID(), proposal, selection);
+        render(dispatcher.dispatch(UUID.randomUUID(), proposal, selection));
+    }
+
+    private void interpret(String text) {
+        UUID requestId = pendingRequestId == null ? UUID.randomUUID() : pendingRequestId;
+        try {
+            var request = new InterpretationRequest(requestId, text,
+                    configuration.approvedFiles().keySet().stream().sorted().toList(),
+                    configuration.approvedReceivers().keySet().stream().sorted().toList(),
+                    current.transferId(), current.runId(), last.transferId(), last.runId(), clarificationHistory);
+            CommandProposal proposal = gpt.interpret(request);
+            if (proposal == null) {
+                throw new GptException(GptException.Code.INVALID_RESPONSE);
+            }
+            DispatchResult result = dispatcher.dispatch(requestId, proposal, defaultSelection());
+            if (result instanceof DispatchResult.Clarification clarification) {
+                String question = clarification.question();
+                if (question.isBlank() || question.length() > InterpretationRequest.MAX_TEXT_LENGTH) {
+                    throw new GptException(GptException.Code.INVALID_RESPONSE);
+                }
+                // This label prevents free model text from becoming a factual transfer acknowledgement.
+                output.println((proposal instanceof CommandProposal.Clarification
+                        ? "Model clarification (no command dispatched): " : "Clarification: ") + question);
+                if (clarificationHistory.size() + 2 <= InterpretationRequest.MAX_HISTORY_TURNS) {
+                    clarificationHistory.add(new InterpretationRequest.Turn("user", text));
+                    clarificationHistory.add(new InterpretationRequest.Turn("assistant", question));
+                    pendingRequestId = requestId;
+                } else {
+                    clearClarification();
+                    output.println("Clarification limit reached. Please restate the full request with file and receiver IDs.");
+                }
+            } else {
+                clearClarification();
+                render(result);
+            }
+        } catch (GptException e) {
+            clearClarification();
+            output.println("GPT " + e.code() + ": " + e.getMessage()
+                    + " No command dispatched. Direct commands remain available.");
+        } catch (IllegalArgumentException e) {
+            clearClarification();
+            output.println("INVALID_COMMAND: GPT input must be 1-4000 characters, with at most 100 IDs per catalogue"
+                    + " and 128 characters per ID. No command dispatched.");
+        }
+    }
+
+    private void clearClarification() {
+        pendingRequestId = null;
+        clarificationHistory.clear();
+    }
+
+    private void render(DispatchResult result) {
         if (result instanceof DispatchResult.Started started) {
             var accepted = started.acknowledgement();
             // The previous run can finish between refreshCurrent() and this start.
@@ -193,11 +271,14 @@ public final class TransferCli {
                 status [current|last|UUID]
                 status {"transfer_id":null}
                 explain {"run_id":null,"question":"What was the outcome?"}
+                ask <natural-language request> (also accepts ordinary sentences without ask)
                 JSON fields are required; null settings use Java defaults. Use IDs from catalog.
                 Bare status, 'status this transfer', and null IDs select the current active run, or last terminal run.
                 'status current' requires an active run; 'status last' / 'status last transfer' selects the last terminal run.
                 An explicit UUID can select older history; unknown or ambiguous references are rejected.
-                Explain selects frozen outcome evidence only; GPT and real experiment metrics/logging are pending.
+                Use ask to interpret a sentence beginning with a reserved direct command such as status.
+                A direct command clears pending clarification context. Model text never acknowledges execution.
+                Explain selects frozen outcome evidence only; generated explanations and real metrics/logging are pending.
                 Exit is refused while a transfer is active. EOF/process shutdown interrupts active work.
                 Start a receiver separately before each transfer; this console does not start one.
                 """);

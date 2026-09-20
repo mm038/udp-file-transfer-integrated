@@ -1,8 +1,8 @@
 ﻿# Java UDP file transfer
 
-The Stage 10.5 sender/receiver implements file transfer over UDP using cumulative ACKs, Go-Back-N retransmission, CRC32 and final SHA-256 verification. Person 3 milestones 2-4 add shared types, deterministic command validation, an asynchronous real-engine adapter and a responsive terminal interface.
+The Stage 10.5 sender/receiver implements file transfer over UDP using cumulative ACKs, Go-Back-N retransmission, CRC32 and final SHA-256 verification. Person 3 milestones 2-5 add shared types, deterministic command validation, an asynchronous real-engine adapter, a terminal interface and GPT command interpretation.
 
-GPT integration, engine observation/identity hooks, and Person 2's measured metrics/logging are still pending. The CLI reports coarse real outcomes and marks unavailable measurements explicitly.
+GPT interpretation is implemented and tested offline; live model evaluation remains pending. Engine observation/identity hooks and Person 2's measured metrics/logging are still pending. The CLI reports coarse real outcomes and marks unavailable measurements explicitly. Generated explanations belong to milestone 6.
 
 ## Build and test
 
@@ -60,9 +60,16 @@ The Java defaults are 1,024-byte chunks, a 1,024-byte window (one packet), a 200
 | `status <UUID>` | Select that exact historical/current application transfer ID |
 | `status {"transfer_id":null}` | Structured status with Java's default selection |
 | `explain {"run_id":null,"question":"What happened?"}` | Display the selected frozen outcome and question; no GPT prose or persisted experiment report yet |
+| `ask <sentence>` or an ordinary sentence | Ask the configured GPT client to propose one command, then independently validate it in Java |
 | `exit` | Refuse while active; leave after completion/failure |
 
-Every declared JSON field is required. Nullable settings select Java defaults; omitted fields, extra fields, duplicate keys, incorrect types and invalid bounds are rejected. Input numbers are normalized integer bytes/milliseconds. Unknown IDs and ambiguous references do not choose a resource automatically. Natural-language transfer requests are not connected yet.
+Every declared JSON field is required. Nullable settings select Java defaults; omitted fields, extra fields, duplicate keys, incorrect types and invalid bounds are rejected. Input numbers are normalized integer bytes/milliseconds. Unknown IDs and ambiguous references do not choose a resource automatically.
+
+Direct commands remain available without GPT credentials. Natural language reads `OPENAI_API_KEY` from the environment and uses `OPENAI_MODEL` (default `gpt-5-mini`). Optional `OPENAI_CONNECT_TIMEOUT_MS` and `OPENAI_REQUEST_TIMEOUT_MS` configure API deadlines; their defaults are 5,000 and 30,000 ms. Values must be 100-120,000 ms. These are separate from the UDP timeout. See the [milestone 5 walkthrough](docs/person-3-milestone-5.md) for configuration and the offline test approach.
+
+For example, `Send report to receiver-a with a 64 KiB window` goes through GPT and then Java validation. Use `ask status of my last transfer` to send a sentence that begins with a reserved direct command to GPT. `explain why the last transfer failed` selects the frozen outcome and question only; it does not yet generate an explanation.
+
+The CLI remembers at most two clarification exchanges. A direct command, API failure, rejection or executed command clears that context. Model text is labelled as non-execution; only Java reports an accepted start or a transfer outcome. The UDP worker continues during an API request, but the console waits for that bounded request before accepting its next line (up to about 60.1 seconds with default retries/deadlines).
 
 End-of-input or process shutdown closes the sender's socket and records interruption in memory on a best-effort basis. It does not claim completion or create Person 2's future logs. There is no user cancellation command.
 
@@ -78,6 +85,7 @@ This legacy command calls the blocking engine directly. The new CLI uses the val
 
 ## Review notes
 
+- [Milestone 5 walkthrough](docs/person-3-milestone-5.md): GPT interface, Responses API wrapper, clarification context, validation and offline checks.
 - [Milestone 4 walkthrough](docs/person-3-milestone-4.md): adapter, resource ownership, status meanings, CLI selection and limitations.
 - [Milestone 3 walkthrough](docs/person-3-milestone-3.md): strict parsing, approved resources and dispatch.
 - [Person 3 checklist](docs/person-3-task-checklist.md): verified test counts and transfer evidence.

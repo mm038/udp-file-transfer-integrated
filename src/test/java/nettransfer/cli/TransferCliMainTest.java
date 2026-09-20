@@ -2,13 +2,39 @@ package nettransfer.cli;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import nettransfer.llm.GptException;
+import nettransfer.llm.InterpretationRequest;
 
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class TransferCliMainTest {
     @TempDir Path root;
+
+    @Test
+    void missingCredentialsAreReportedOnlyWhenNaturalLanguageIsUsed() {
+        var client = assertDoesNotThrow(() -> TransferCliMain.gptFromEnvironment(Map.of()));
+        var error = assertThrows(GptException.class, () -> client.interpret(request()));
+        assertEquals(GptException.Code.MISSING_CREDENTIALS, error.code());
+    }
+
+    @Test
+    void invalidOptionalApiConfigurationDoesNotAbortConsoleStartup() {
+        var client = assertDoesNotThrow(() -> TransferCliMain.gptFromEnvironment(
+                Map.of("OPENAI_API_KEY", "test-secret", "OPENAI_REQUEST_TIMEOUT_MS", "invalid")));
+        var error = assertThrows(GptException.class, () -> client.interpret(request()));
+        assertEquals(GptException.Code.INVALID_CONFIGURATION, error.code());
+        assertFalse(error.toString().contains("test-secret"));
+    }
+
+    private static InterpretationRequest request() {
+        return new InterpretationRequest(UUID.randomUUID(), "Hello", List.of("report"), List.of("receiver-a"),
+                null, null, null, null, List.of());
+    }
 
     @Test
     void trustedStartupArgumentsCreateExplicitFileCatalogAndFixedReceiver() {

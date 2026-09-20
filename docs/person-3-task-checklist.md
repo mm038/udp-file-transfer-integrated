@@ -1,6 +1,6 @@
 # Person 3 implementation checklist
 
-Updated September 20, 2026 for the stage 10.5 baseline on branch `person-3/llm-integration`, commit `15a3fc36643a70b54c2fc767038ff4cc547cf31b`. Milestones 2-4 are implemented and verified: the latest `mvn -o verify` passed 259 tests (78 baseline + 15 milestone 2 + 123 milestone 3 + 43 milestone 4), with zero failures/errors/skips, and built the JAR. The existing engine is unchanged. Teammate agreement, Person 2's logging/metrics, and milestones 5 onward remain pending. The user's earlier baseline transfer remains recorded below; a separate packaged-CLI transfer with matching hashes is recorded under milestone 4.
+Updated September 20, 2026 on branch `person-3/llm-integration`. Engine baseline: `15a3fc36643a70b54c2fc767038ff4cc547cf31b` (Stage 10.5); milestones 2-4 were committed as `1571613` before milestone 5 began. Milestones 2-5 are implemented and verified: the latest `mvn -o verify` passed 371 tests (78 baseline + 15 milestone 2 + 123 milestone 3 + 43 milestone 4 + 112 milestone 5), with zero failures/errors/skips, and built the JAR. The existing engine is unchanged. Teammate agreement, Person 2's logging/metrics, live GPT evaluation and milestones 6 onward remain pending. Earlier real transfer/hash evidence remains recorded under milestones 1 and 4; milestone 5 adds offline GPT/HTTP checks and a packaged-CLI credential-fallback check.
 
 Work through the milestones in order; add tests alongside each component rather than postponing them until milestone 7. The engine now exists, so connect a real adapter before GPT. Keep the simulated service for deterministic tests and cases the real engine cannot yet expose.
 
@@ -75,7 +75,7 @@ See the [milestone 3 walkthrough](person-3-milestone-3.md) for the exact files, 
 - A batch with multiple calls is rejected before any call. Malformed/invalid commands cause zero calls to the service. Accepted starts cause one service start attempt. Concurrent distinct valid requests reach the service's atomic reservation; one is accepted and the other returns `TRANSFER_BUSY` before starting a transfer. This milestone verifies the service boundary with a counting fake, not a real engine adapter.
 - Java request IDs prevent repeated/concurrent output from attempting a second start, including after terminal completion. New explicit requests use new IDs. This record is in memory, separate from Person 2's future logs.
 - `explain` only selects a frozen service summary and keeps the question. Null IDs require trusted Java selection context, now supplied by milestone 4's CLI current/last tracking. Clarification and unsupported outcomes never execute a transfer.
-- Milestone 3 itself did not add a real adapter or CLI; those follow in milestone 4 below. The engine remains unchanged. GPT integration, wire-ID/observer extensions, and Person 2's metric/logging implementations are still pending. Draft configuration bounds remain subject to team review.
+- Milestone 3 itself did not add a real adapter or CLI; those follow in milestone 4 below. At that checkpoint, GPT integration, wire-ID/observer extensions, and Person 2's metric/logging implementations were still pending. Draft configuration bounds remain subject to team review.
 
 **Milestone 3 checkpoint:** completed before beginning milestone 4. Person 2's work and the agreed hooks remain pending.
 
@@ -114,19 +114,45 @@ Reading guide:
 
 `REAL` snapshots keep unknown wire ID, ACKed bytes, protocol duration and engine `-1` counters unavailable. File size is source metadata only. Generic engine failures preserve their reason with integrity `UNCONFIRMED`; no phase or typed integrity cause is guessed from prose. Final summaries and interruption records are in memory. Person 1's engine, wire protocol, existing `Main`, and JAR entry point remain unchanged; Person 2's metrics/logging and the agreed UUID/observer extensions are still pending.
 
-**Review stop:** milestone 4 only is complete in this step. Next, after review, milestone 5 adds the injectable GPT client and command interpretation through the existing validator/dispatcher. Real metric explanations continue to depend on Person 2's measurements and the agreed hooks.
+**Milestone 4 checkpoint:** completed and reviewed before milestone 5 below. Real metric explanations continue to depend on Person 2's measurements and the agreed hooks.
 
 ## 5. Add the GPT API wrapper and command interpretation
 
-- [ ] Add an injectable GPT client interface with a stub implementation for offline use.
-- [ ] Implement the OpenAI Responses API adapter using Java 17 `HttpClient` and Gson, with configurable model and request timeouts.
-- [ ] Describe the approved commands with strict function schemas; allow at most one proposed command per user request and disable parallel tool calls.
-- [ ] Build prompts from the available command vocabulary and necessary approved metadata; keep file contents and credentials out of prompts.
-- [ ] Parse expected responses and handle clarification, refusal, incomplete output, unexpected output, and malformed arguments without executing a transfer.
-- [ ] Handle missing credentials, authentication failures, rate limits, and transport errors; ensure retries never dispatch the same start twice.
-- [ ] Connect natural-language input to GPT interpretation and then to the existing Java validator; load credentials outside source control and redact them from logs.
+- [x] Add an injectable GPT client interface with a stub implementation for offline use.
+- [x] Implement the OpenAI Responses API adapter using Java 17 `HttpClient` and Gson, with configurable model and request timeouts.
+- [x] Describe the approved commands with strict function schemas; allow at most one proposed command per user request and disable parallel tool calls.
+- [x] Build prompts from the available command vocabulary and necessary approved metadata; keep file contents and credentials out of prompts.
+- [x] Parse expected responses and handle clarification, refusal, incomplete output, unexpected output, and malformed arguments without executing a transfer.
+- [x] Handle missing credentials, authentication failures, rate limits, and transport errors; ensure retries never dispatch the same start twice.
+- [x] Connect natural-language input to GPT interpretation and then to the existing Java validator; load credentials outside source control and redact them from logs.
 
 **Done when:** the stub GPT client drives the CLI through the same service boundary as the real adapter, and every proposed command still crosses deterministic validation.
+
+**Verified September 20, 2026:** the initial focused command `mvn -o '-Dtest=nettransfer.llm.*Test,nettransfer.cli.*Test' test` passed 128 tests. Two additional malformed-argument/credential regression cases were then included in the final `mvn -o verify`, which passed all **371 tests across 25 classes**, with zero failures/errors/skips, and packaged the JAR. The 112 added checks comprise:
+
+| Test class | Added checks | Verified behavior |
+| --- | ---: | --- |
+| `ResponsesGptClientTest` | 55 | Real Java HTTP requests against a loopback server: strict schemas, bounded metadata, expected/malformed/refused/incomplete/mixed output, retries, authentication, deadlines including a stalled body, transport errors, body limits, redirects and credential-safe errors |
+| `GptSettingsTest` | 22 | Configurable model/API deadlines, finite bounds, safe invalid configuration and bounded attempts |
+| `TransferCliGptTest` | 33 | Stub-to-CLI-to-validator flow, rejected proposals with no start, clarification context and request UUID lifetime, Java current/last selections, active-service preservation on API failure, and direct command fallback |
+| `TransferCliMainTest` | 2 added (5 total) | Missing credentials and invalid optional API configuration do not prevent starting the direct console |
+
+The local HTTP retry integration returns HTTP 429 and then a valid proposal. It verifies two HTTP attempts produce exactly one simulated `TransferService.start`, using the same Java request UUID in both attempts and the accepted request. Captured request bodies contain IDs and user text, with no configured paths, file contents or API key. Captured CLI/errors exclude the test key, including cases with escaped credentials in tool arguments. Unknown/malformed/multiple proposals cannot authorize a start. The tests use scripted model output; they do not establish live GPT interpretation quality.
+
+A separate packaged-JAR smoke check, with `OPENAI_API_KEY` absent, entered a natural-language request, `status`, and `exit`. It reported `MISSING_CREDENTIALS`, then Java's no-selection clarification, then `Goodbye`, with no accepted start. Its local transcript is `target/milestone5-cli-smoke.txt` (ignored build output).
+
+Java 17 and cached Maven dependencies were used. The focused run passed inside the sandbox; full verification used approved access outside it for the existing Windows file-permission test. No live OpenAI request or new manual UDP transfer was made. `clean` was not run, preserving prior transfer evidence. Packaging regenerated the existing untracked `dependency-reduced-pom.xml`; it is not part of this milestone's source changes.
+
+Implemented files and choices:
+
+1. `src/main/java/nettransfer/llm/`: `GptClient`, immutable `InterpretationRequest`, scripted `StubGptClient`, `GptSettings`, typed `GptException`, and `ResponsesGptClient` with `ResponsesJson`/`ResponsesBodySubscriber` helpers. No service/engine access exists inside the GPT client.
+2. `TransferCli`: natural-language input and `ask <sentence>` use the injected interpreter, then the existing dispatcher. Up to two clarification exchanges share a Java request ID; a direct command, executed/rejected request or API failure clears the context. GPT text is explicitly labelled as non-execution.
+3. `TransferCliMain`: environment configuration for key/model/API deadlines, with missing/invalid GPT configuration leaving direct commands available. HTTP retries happen before dispatch and preserve the logical request ID.
+4. [Milestone 5 walkthrough](person-3-milestone-5.md), [README](../README.md), and [handoff](person-3-handoff.md): file map, example flow, setup and practical limits. The model/API format choices were checked against official OpenAI documentation.
+
+The default API request can occupy the console for about 60.1 seconds across two attempts; the separate UDP worker keeps running. API deadlines are configurable and separate from UDP settings. `explain` still selects a frozen outcome/question only. Person 1's engine, the shared service/command contracts, deterministic validator/dispatcher, wire protocol, existing entry point and dependencies are unchanged. Person 2's metrics/logging and proposed engine hooks remain pending.
+
+**Review stop:** milestone 5 only is complete in this step. Next, after review, milestone 6 would add a summary-provider boundary and evidence-grounded explanations using labelled fixtures until real summaries are supplied by Person 2. No milestone 6 implementation was started.
 
 ## 6. Ground explanations in recorded measurements
 

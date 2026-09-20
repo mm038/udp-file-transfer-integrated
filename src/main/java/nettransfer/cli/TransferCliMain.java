@@ -2,6 +2,9 @@ package nettransfer.cli;
 
 import nettransfer.control.command.TransferConfiguration;
 import nettransfer.control.engine.RealTransferService;
+import nettransfer.llm.GptClient;
+import nettransfer.llm.GptException;
+import nettransfer.llm.ResponsesGptClient;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -34,7 +37,8 @@ public final class TransferCliMain {
             Runtime.getRuntime().addShutdownHook(shutdown);
             try {
                 new TransferCli(service, configuration,
-                        new InputStreamReader(System.in, StandardCharsets.UTF_8), output).run();
+                        new InputStreamReader(System.in, StandardCharsets.UTF_8), output,
+                        gptFromEnvironment(System.getenv())).run();
             } catch (IOException e) {
                 output.println("Console input failed; closing transfer resources: " + e.getMessage());
             } finally {
@@ -72,10 +76,21 @@ public final class TransferCliMain {
         return TransferConfiguration.localhost(root, files);
     }
 
+    /** Invalid optional GPT configuration must not disable local status/help or transfer commands. */
+    static GptClient gptFromEnvironment(Map<String, String> environment) {
+        try {
+            return ResponsesGptClient.fromEnvironment(environment);
+        } catch (GptException e) {
+            return request -> { throw e; };
+        }
+    }
+
     private static void usage(PrintWriter output) {
         output.println("Usage: java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain <projectRoot> <file-id=relative-path>...");
         output.println("Example: java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . report=data/input/report.txt");
         output.println("Files must pass Java validation under <projectRoot>/data/input. Quote arguments containing spaces.");
         output.println("Receiver ID receiver-a uses 127.0.0.1:9000; start the existing receiver separately.");
+        output.println("Natural language uses OPENAI_API_KEY and optional OPENAI_MODEL (default gpt-5-mini).");
+        output.println("Optional API deadlines: OPENAI_CONNECT_TIMEOUT_MS and OPENAI_REQUEST_TIMEOUT_MS. Direct commands need no key.");
     }
 }
