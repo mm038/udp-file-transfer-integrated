@@ -72,7 +72,7 @@ public final class ExplanationFlow {
                     "Analysis returned invalid identity or evidence references. Original evidence remains available.", evidence);
         }
         return new Result(Status.EXPLAINED,
-                "Offline analysis; references checked against supplied evidence. Prose still requires review.", evidence, draft);
+                "Analysis references checked against supplied evidence. Prose still requires review.", evidence, draft);
     }
 
     private static boolean valid(ExplanationDraft draft, RecordedSummary evidence) {

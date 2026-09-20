@@ -6,13 +6,13 @@ public final class GptException extends RuntimeException {
         MISSING_CREDENTIALS("OPENAI_API_KEY is missing."),
         INVALID_CONFIGURATION("GPT configuration is invalid; check model and timeout settings."),
         AUTHENTICATION("The API rejected the supplied credentials or permissions."),
-        RATE_LIMIT("The API rate limit or quota prevented interpretation."),
+        RATE_LIMIT("The API rate limit or quota prevented this request."),
         TIMEOUT("The API request exceeded its deadline."),
         TRANSPORT("The API could not be reached or its response was interrupted."),
         REFUSED("The model declined this request."),
         INCOMPLETE("The model response was incomplete."),
         INVALID_RESPONSE("The API returned an invalid or unexpected response."),
-        UNAVAILABLE("GPT interpretation is unavailable.");
+        UNAVAILABLE("GPT is unavailable.");
 
         private final String message;
 

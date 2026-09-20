@@ -266,7 +266,7 @@ public final class TransferCli {
             output.println("No GPT explanation is generated. Available Java evidence is shown above.");
             return;
         }
-        output.println("Offline explanation draft (no command dispatched):");
+        output.println("Explanation draft (no command dispatched):");
         for (var observation : draft.observations()) {
             output.println("Observation: " + observation.text());
             for (var reference : observation.references()) {

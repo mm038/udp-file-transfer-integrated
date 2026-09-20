@@ -8,31 +8,16 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import nettransfer.control.command.CommandProposal;
 
-import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /** Translates a Responses API result into an untrusted proposal; it cannot call the transfer engine. */
 public final class ResponsesGptClient implements GptClient {
     public static final String PROMPT_SCHEMA_VERSION = "commands-v1";
-    private static final URI ENDPOINT = URI.create("https://api.openai.com/v1/responses");
     private static final Gson JSON = new GsonBuilder().serializeNulls().create();
     private static final String INSTRUCTIONS = """
             You interpret commands for a Java UDP file-transfer console. Propose zero or one of the supplied
@@ -60,25 +45,17 @@ public final class ResponsesGptClient implements GptClient {
             If the user requests more than one operation, ask them to choose one before proposing a tool.
             """;
 
-    private final String apiKey;
     private final GptSettings settings;
-    private final URI endpoint;
-    private final HttpClient http;
+    private final ResponsesTransport transport;
 
     public ResponsesGptClient(String apiKey, GptSettings settings) {
-        this(apiKey, settings, ENDPOINT);
+        this(apiKey, settings, ResponsesTransport.ENDPOINT);
     }
 
     /** A loopback-only endpoint seam permits offline HTTP tests without exposing endpoint selection to GPT. */
     ResponsesGptClient(String apiKey, GptSettings settings, URI endpoint) {
-        this.apiKey = apiKey == null ? "" : apiKey.strip();
         this.settings = Objects.requireNonNull(settings, "settings");
-        this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
-        if (!ENDPOINT.equals(endpoint) && !isLoopbackEndpoint(endpoint)) {
-            throw new GptException(GptException.Code.INVALID_CONFIGURATION);
-        }
-        http = HttpClient.newBuilder().connectTimeout(settings.connectTimeout())
-                .followRedirects(HttpClient.Redirect.NEVER).build();
+        this.transport = new ResponsesTransport(apiKey, settings, endpoint);
     }
 
     public static ResponsesGptClient fromEnvironment(Map<String, String> environment) {
@@ -89,84 +66,7 @@ public final class ResponsesGptClient implements GptClient {
     @Override
     public CommandProposal interpret(InterpretationRequest interpretation) {
         Objects.requireNonNull(interpretation, "interpretation");
-        if (apiKey.isBlank()) {
-            throw new GptException(GptException.Code.MISSING_CREDENTIALS);
-        }
-        // No key is copied into model input, even if a user accidentally pastes it into their request.
-        JsonObject payload = payload(interpretation);
-        if (ResponsesJson.containsSecret(payload, apiKey)) {
-            throw new GptException(GptException.Code.INVALID_CONFIGURATION);
-        }
-        HttpRequest request;
-        try {
-            request = HttpRequest.newBuilder(endpoint).timeout(settings.requestTimeout())
-                    .header("Authorization", "Bearer " + apiKey)
-                    .header("Content-Type", "application/json")
-                    .header("X-Client-Request-Id", interpretation.requestId().toString())
-                    .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(payload), StandardCharsets.UTF_8)).build();
-        } catch (IllegalArgumentException exception) {
-            throw new GptException(GptException.Code.INVALID_CONFIGURATION);
-        }
-
-        for (int attempt = 1; attempt <= settings.maxAttempts(); attempt++) {
-            HttpResponse<byte[]> response;
-            try {
-                response = send(request);
-            } catch (GptException exception) {
-                if (Thread.currentThread().isInterrupted() || attempt == settings.maxAttempts()
-                        || (exception.code() != GptException.Code.TRANSPORT
-                        && exception.code() != GptException.Code.TIMEOUT)) {
-                    throw exception;
-                }
-                pause(attempt);
-                continue;
-            }
-            int status = response.statusCode();
-            if (status == 200) {
-                return decode(response.body());
-            }
-            if (retryable(status) && attempt < settings.maxAttempts()) {
-                pause(attempt);
-                continue;
-            }
-            throw statusFailure(status);
-        }
-        throw new GptException(GptException.Code.UNAVAILABLE);
-    }
-
-    private HttpResponse<byte[]> send(HttpRequest request) {
-        CompletableFuture<HttpResponse<byte[]>> pending = http.sendAsync(request,
-                responseInfo -> new ResponsesBodySubscriber());
-        try {
-            // The explicit future deadline also bounds a stalled response body after successful headers.
-            return pending.get(settings.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
-        } catch (TimeoutException exception) {
-            pending.cancel(true);
-            throw new GptException(GptException.Code.TIMEOUT);
-        } catch (InterruptedException exception) {
-            pending.cancel(true);
-            Thread.currentThread().interrupt();
-            throw new GptException(GptException.Code.TRANSPORT);
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            if (hasCause(cause, ResponsesBodySubscriber.BodyLimitException.class)) {
-                throw ResponsesJson.invalid();
-            }
-            if (hasCause(cause, HttpTimeoutException.class)) {
-                throw new GptException(GptException.Code.TIMEOUT);
-            }
-            throw new GptException(hasCause(cause, IOException.class)
-                    ? GptException.Code.TRANSPORT : GptException.Code.UNAVAILABLE);
-        }
-    }
-
-    private static boolean hasCause(Throwable throwable, Class<? extends Throwable> type) {
-        for (int depth = 0; throwable != null && depth < 16; depth++, throwable = throwable.getCause()) {
-            if (type.isInstance(throwable)) {
-                return true;
-            }
-        }
-        return false;
+        return decode(transport.post(payload(interpretation), interpretation.requestId()));
     }
 
     private JsonObject payload(InterpretationRequest request) {
@@ -264,18 +164,9 @@ public final class ResponsesGptClient implements GptClient {
         return tool;
     }
 
-    private CommandProposal decode(byte[] bytes) {
-        String body;
-        try {
-            body = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
-        } catch (CharacterCodingException exception) {
-            throw ResponsesJson.invalid();
-        }
+    private CommandProposal decode(String body) {
         JsonObject response = ResponsesJson.parse(body);
-        if (ResponsesJson.containsSecret(response, apiKey)) {
-            throw ResponsesJson.invalid();
-        }
+        transport.rejectResponseSecret(response);
         String status = ResponsesJson.string(response, "status");
         if (List.of("incomplete", "in_progress", "queued", "cancelled").contains(status)) {
             throw new GptException(GptException.Code.INCOMPLETE);
@@ -308,9 +199,7 @@ public final class ResponsesGptClient implements GptClient {
                     }
                     // Decode the inner JSON before checking credentials. Malformed JSON fails closed,
                     // so a later parser error can never expose a credential hidden by Unicode escaping.
-                    if (ResponsesJson.containsSecret(ResponsesJson.parse(arguments), apiKey)) {
-                        throw ResponsesJson.invalid();
-                    }
+                    transport.rejectResponseSecret(ResponsesJson.parse(arguments));
                     // Preserve the original JSON: Java still validates command names, exact fields/types,
                     // integer spelling, IDs, bounds and lifecycle independently of the API schema.
                     calls.add(new CommandProposal.ToolCall(name, arguments));
@@ -364,34 +253,4 @@ public final class ResponsesGptClient implements GptClient {
         return object.has(name) && !object.get(name).isJsonNull();
     }
 
-    private static boolean retryable(int status) {
-        return status == 408 || status == 429 || status == 500 || status == 502 || status == 503 || status == 504;
-    }
-
-    private static GptException statusFailure(int status) {
-        return new GptException(switch (status) {
-            case 401, 403 -> GptException.Code.AUTHENTICATION;
-            case 429 -> GptException.Code.RATE_LIMIT;
-            case 408 -> GptException.Code.TIMEOUT;
-            default -> status >= 500 || status >= 300 && status < 400
-                    ? GptException.Code.UNAVAILABLE : GptException.Code.INVALID_CONFIGURATION;
-        });
-    }
-
-    private static void pause(int attempt) {
-        try {
-            Thread.sleep(Duration.ofMillis(100L * attempt).toMillis());
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new GptException(GptException.Code.TRANSPORT);
-        }
-    }
-
-    private static boolean isLoopbackEndpoint(URI endpoint) {
-        String host = endpoint.getHost();
-        return "http".equals(endpoint.getScheme()) && endpoint.getUserInfo() == null
-                && endpoint.getFragment() == null && endpoint.getQuery() == null
-                && ("localhost".equals(host) || "127.0.0.1".equals(host)
-                || "[::1]".equals(host) || "::1".equals(host));
-    }
 }

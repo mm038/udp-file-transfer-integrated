@@ -2,9 +2,13 @@ package nettransfer.cli;
 
 import nettransfer.control.command.TransferConfiguration;
 import nettransfer.control.engine.RealTransferService;
+import nettransfer.explanation.ExplanationClient;
+import nettransfer.explanation.ExplanationFlow;
+import nettransfer.explanation.SummaryProvider;
 import nettransfer.llm.GptClient;
 import nettransfer.llm.GptException;
 import nettransfer.llm.ResponsesGptClient;
+import nettransfer.llm.ResponsesExplanationClient;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -38,7 +42,9 @@ public final class TransferCliMain {
             try {
                 new TransferCli(service, configuration,
                         new InputStreamReader(System.in, StandardCharsets.UTF_8), output,
-                        gptFromEnvironment(System.getenv())).run();
+                        gptFromEnvironment(System.getenv()),
+                        new ExplanationFlow(SummaryProvider.unavailable(),
+                                explanationFromEnvironment(System.getenv()))).run();
             } catch (IOException e) {
                 output.println("Console input failed; closing transfer resources: " + e.getMessage());
             } finally {
@@ -80,6 +86,15 @@ public final class TransferCliMain {
     static GptClient gptFromEnvironment(Map<String, String> environment) {
         try {
             return ResponsesGptClient.fromEnvironment(environment);
+        } catch (GptException e) {
+            return request -> { throw e; };
+        }
+    }
+
+    /** Construction makes no HTTP call; unavailable evidence stops the flow before this client. */
+    static ExplanationClient explanationFromEnvironment(Map<String, String> environment) {
+        try {
+            return ResponsesExplanationClient.fromEnvironment(environment);
         } catch (GptException e) {
             return request -> { throw e; };
         }
