@@ -1,6 +1,8 @@
 # Person 3 handoff: LLM command and analysis interface
 
-Updated September 20, 2026 against engine commit `15a3fc36643a70b54c2fc767038ff4cc547cf31b` (Stage 10.5); milestones 2-4 were committed as `1571613`, milestone 5 as `d9cc443`. Milestones 2-5 provide draft shared types, fake and real services, validation/dispatch, CLI and GPT command interpretation; their recorded verification passed 371 tests and built the JAR. Milestone 6 now adds the independent offline summary-provider/explanation boundary with synthetic fixtures and identity/reference checks. See its [walkthrough](person-3-milestone-6.md) and the [checklist](person-3-task-checklist.md) for verification and pending work. Earlier milestone 4 transfer evidence includes matching SHA-256 hashes. Live GPT evaluation/explanations, teammate agreement, engine hooks and Person 2's actual metrics/logging remain pending; the existing engine is unchanged.
+Updated September 20, 2026 against engine commit `15a3fc36643a70b54c2fc767038ff4cc547cf31b` (Stage 10.5); milestones 2-4 were committed as `1571613`, milestone 5 as `d9cc443`, and the independent milestone 6 boundary as `ab3c4c0`. That original milestone 6 checkpoint passed 437 tests and built the JAR. The current follow-up adds the separate explanation HTTP adapter and passed **498 tests across 29 classes**, with zero failures/errors/skips, in `mvn -o verify`; the JAR was built. See the [HTTP walkthrough](person-3-milestone-6-http.md) and [checklist](person-3-task-checklist.md) for verification details. Earlier milestone 4 evidence includes matching SHA-256 hashes. The engine remains unchanged. Actual metrics/logging, concrete identity/event/storage integration and live model evaluation remain pending; milestone 7 has not started.
+
+**Latest agreement:** the user confirms Person 2 has accepted the complete [revised metric set](Metrics_Summary_Revised.md), including its supporting fields. Use that set for subsequent work; do not request scope approval again. It supersedes the original metrics proposal discussed in the [review history](person-2-metrics-review.md). Actual logging/summary implementation, concrete serialization/events and verified identity/hooks integration are still pending. The independent explanation HTTP adapter is now implemented; work requiring real producer outputs remains pending. Stop for review before milestone 7.
 
 Person 3 will build a Java command-line interface that translates natural-language requests into validated transfer commands, reports current status, and explains recorded results. A working real engine is now available. Develop a real adapter early, and retain a simulated service for predictable tests and for status/analysis work while measurement hooks are being added.
 
@@ -114,7 +116,7 @@ One logical CLI request may cause at most one engine start. Java assigns a reque
 
 ## 5. Commands, context and validation
 
-Milestone 3 implements the Java parser, validator and dispatcher for the three operations below. It checks configured resources and settings, rejects invalid or multiple proposed calls before dispatch, and prevents repeated start attempts for the same Java request ID. Milestone 5 adds GPT response interpretation and strict tool schemas in front of that same boundary. Milestone 6 cross-checks `explain` selection against the service's run/transfer mapping and passes the frozen outcome to a separate analysis flow. Explicitly injected synthetic fixtures can produce checked scripted drafts offline; real recorded evidence remains unavailable.
+Milestone 3 implements the Java parser, validator and dispatcher for the three operations below. It checks configured resources and settings, rejects invalid or multiple proposed calls before dispatch, and prevents repeated start attempts for the same Java request ID. Milestone 5 adds GPT response interpretation and strict tool schemas in front of that same boundary. Milestone 6 cross-checks `explain` selection against the service's run/transfer mapping and passes the frozen outcome to a separate analysis flow. Explicitly injected synthetic fixtures exercise scripted drafts and the tool-free HTTP adapter against a local test server; real recorded evidence remains unavailable.
 
 | Tool | Proposed model arguments | Java behavior |
 | --- | --- | --- |
@@ -144,7 +146,7 @@ Retain the engine's verified defaults for the first adapter. Proposed applicatio
 | Retry default | 5 consecutive Go-Back-N retransmission rounds without progress | Matches `Main`; one round may resend several packets, and progress resets the consecutive-round counter |
 | Rate requests | Unsupported initially | Reject explicitly until the engine actually implements pacing and its bounds |
 | Source/output policy | Approved files under `data/input`; received files under `data/received` | Java resolves real paths, checks containment including links, and applies a no-overwrite policy |
-| Run evidence | Proposed JSONL events and JSON summary per run under `experiments/logs` | Person 2 will write authoritative data; this storage is not present yet |
+| Run evidence | Person 2 now proposes one summary record per transfer in JSONL or CSV; event logging remains a separate requirement | Final format, location, identity association and finalization rules are pending. Earlier JSON-per-run storage was a recommendation, not an implemented contract. |
 
 Example: a 64 KiB request becomes 65,536 bytes, then 64 packet slots at 1,024 bytes per chunk. A non-multiple byte budget rounds down to whole slots; display the effective capacity. The original plan's 32 KiB/300 ms settings may be evaluated later as explicit experimental configurations.
 
@@ -154,6 +156,10 @@ Use bytes and milliseconds in contracts. Define KB as 1,000 bytes and KiB as 1,0
 
 ## 6. Status and metric handoff
 
+**Accepted scope:** use the complete [revised metric set and supporting fields](Metrics_Summary_Revised.md). The original `Metrics_Summary.docx` supplied terminal-summary names and an illustrative example; the revised document adds assignment coverage, corrects the DATA-count illustration and records the user's confirmation of Person 2's agreement. The [review history](person-2-metrics-review.md) explains that progression. Keep `packet_loss_rate` and `delay_ms` labelled configured; do not treat their values as observed loss or RTT. Preserve units and explicit missing evidence. Illustrative numbers remain synthetic.
+
+The accepted field scope does not supply an implemented summary/event schema or establish the engine/application identity mapping. The live snapshot suggestions below remain separate integration recommendations. The revised summary's definitions are the working baseline for the accepted set and supersede earlier accounting recommendations where they differ; remaining implementation details must be checked against Person 2's actual outputs. The existing fixture envelope is still local test data, not a producer-schema implementation.
+
 Recommended `TransferSnapshot` fields: `schema_version`, `transfer_id`, nullable `protocol_transfer_id`, `run_id`, `state`, `snapshot_at`, `file_size_bytes`, `unique_payload_bytes_acked`, `progress_percent`, `elapsed_ms`, `recent_goodput_bytes_per_second`, `recent_interval_ms`, `retransmissions`, and nullable error information. Until observations exist, detailed real measurements remain unavailable. Any wrapper elapsed time must be labelled as operation elapsed time; it does not supply the engine timing boundaries required for protocol goodput.
 
 On the sender, live progress uses unique payload bytes acknowledged by the receiver. Label it that way: bytes submitted to a socket are not delivery, and acknowledgement is not final whole-file verification. If Person 2 can provide an actual receiver snapshot, expose it separately with its observation time. Never silently substitute one meaning for another.
@@ -162,7 +168,7 @@ A validated cumulative ACK can acknowledge several chunks at once. For contiguou
 
 Use a nominal one-second recent-goodput interval; when less history exists, report the actual interval used. Avoid division by zero. A zero-byte file has no meaningful byte-percentage progress while active; display its state and show completion only after verified completion.
 
-The final summary must support the following assignment evidence, with a metric-definition version so that fixtures and actual summaries stay compatible:
+The following groups explain the original handoff's evidence needs. Use the revised summary for the accepted field list and working definitions; this grouping does not add further agreed fields. Keep a metric-definition version so fixtures and actual summaries can be checked for compatibility:
 
 | Evidence group | Required contents and interpretation |
 | --- | --- |
@@ -175,16 +181,16 @@ The final summary must support the following assignment evidence, with a metric-
 | Configuration | Requested and accepted chunk size, requested byte window and effective packet window, timeout, consecutive-round retry policy, scenario and impairment seed |
 | Impairment observations | Configured loss/delay/jitter separately from actual injected drops/delays where measured |
 
-Recommended accounting choices for the first implementation:
+Accounting guidance, with the accepted revised summary taking precedence:
 
-- Final successful-run goodput is verified unique file payload bytes divided by elapsed transfer seconds. Start timing immediately before the first START send; stop when verified completion is acknowledged. Exclude GPT parsing/explanation time. Failed-run summaries retain partial acknowledged bytes and outcome; do not label them successful-file goodput.
+- The revised `throughput_mbps` uses observed unique receiver-delivered payload bytes and the supplied transfer duration. Its proposed timing interval runs from the first START send attempt to the sender's terminal decision, excluding GPT time. Preserve receiver delivery, sender ACK progress and final integrity as distinct evidence. On failure, label the result a failed-run delivered-payload rate; unavailable inputs remain null.
 - DATA retransmission ratio is retransmitted DATA attempts divided by all DATA attempts, including retransmissions. Return `null` when the denominator is zero. Control-message retries have separate counts.
-- Count logical send attempts separately from datagrams actually emitted after the impairment shim. For an application-level overhead measure, sum emitted UDP payload bytes from both endpoints, including control messages and retransmissions, and subtract verified file payload bytes. Divide by those emitted bytes for overhead fraction. State that IP/UDP/link headers are excluded. If complete endpoint evidence is unavailable, mark this combined metric unavailable instead of inventing a total.
+- Count logical send attempts separately from datagrams actually emitted after the impairment shim. The revised application-protocol overhead uses emitted UDP payload bytes from both endpoints, including controls and retransmissions, minus unique receiver-delivered payload bytes. Divide by emitted bytes for its fraction, excluding IP/UDP/link headers. Incomplete compatible endpoint evidence makes this metric unavailable.
 - Do not count sender and receiver observations of the same datagram as two transmissions. Keep role-specific counters in the summary.
 - Use unambiguous RTT samples; exclude samples whose ACK cannot be associated confidently with a send attempt. Person 2 documents the percentile calculation and sampling rule.
 - Represent unavailable metrics as `null` plus a reason, rather than zero. Retransmissions never inflate unique payload counters.
 
-Person 2 owns the calculation implementation and final documented definitions. If the team changes a definition, update the contract, fixtures, displays and explanation prompts together.
+Person 2 owns the calculation and logging implementation for the accepted metric set. Record its concrete definitions, types, null representation and observation points in the producer handoff. If a definition changes, update the contract, fixtures, displays and explanation prompts together.
 
 ## 7. GPT request and explanation behavior
 
@@ -196,9 +202,11 @@ Milestone 5 implements this boundary with Java `HttpClient` and Gson, an injecta
 
 Start responses and factual status displays are rendered from Java results. Plain model text without a validated tool call can request clarification or describe supported usage, but must not be treated as evidence that a transfer started or completed. Keep a local direct status command usable even when model access fails. A normal local `exit` during an active transfer reports that it is still active and keeps the session open; after a terminal state it closes resources. A process shutdown hook should close resources and record interruption on a best-effort basis, without claiming successful completion.
 
-For an explanation, Java loads the selected frozen summary and a bounded relevant event excerpt, then makes a separate analysis request with no execution tools. Request an answer, references to supplied run/field identifiers, and limitations. Java checks that referenced evidence exists and renders the original numeric values beside the prose. Preserve the evidence snapshot identity/time so later progress cannot change the basis of the answer.
+For eventual measured explanations, Java will load the selected frozen summary and, when needed and available, a bounded relevant event excerpt before making a separate analysis request with no execution tools. Request an answer, references to supplied run/field identifiers, and limitations. Java checks that referenced evidence exists and renders original numeric values beside the prose. Preserve the evidence snapshot identity/time so later progress cannot change the basis of the answer.
 
-The independent milestone 6 implementation provides that boundary with bounded synthetic summaries and an offline `ExplanationClient`; no event excerpts are needed for its cases. It checks run/transfer/protocol/provenance and draft version before analysis, then checks returned numerical references. Real outcomes return `EVIDENCE_UNAVAILABLE` before provider/client invocation. This is a Person 3 fixture contract, not Person 2's metric schema. No real persistence adapter or live explanation HTTP request is implemented yet. Source values and missing reasons remain visible if analysis fails.
+The independent milestone 6 implementation provides that boundary with bounded synthetic summaries, a scripted client and the separate `ResponsesExplanationClient`; no event excerpts are needed for its cases. It checks run/transfer/protocol/provenance and fixture version before analysis, then checks returned numerical references. The HTTP adapter uses prompt `explanations-v2`, requests a strict JSON explanation, exposes no tools and rejects tool-call output. It and command interpretation share `ResponsesTransport` for deadlines, bounded retries/body size, strict UTF-8 decoding and credential safeguards, while keeping their request/response handling separate.
+
+The launcher constructs the explanation client with the existing environment settings and `SummaryProvider.unavailable()`. Construction does not call HTTP; REAL outcomes still return `EVIDENCE_UNAVAILABLE` before provider/client invocation. There is no real persistence adapter or fixture fallback. Source values and missing reasons remain visible if analysis fails. The fixture contract is local test data, not Person 2's serialized summary schema. This follow-up used synthetic responses from a local HTTP server only; no live OpenAI calls or live-quality claims are part of it. See the [HTTP walkthrough](person-3-milestone-6-http.md).
 
 An explanation must distinguish measured observations from hypotheses. Retransmissions do not directly measure packet-loss percentage; timeout events do not prove congestion; an injected loss probability is not an observed loss rate. A single run does not establish that one setting is faster than another. Comparisons require separately supplied comparable runs, and are optional beyond the initial single-run explanation.
 
@@ -225,9 +233,11 @@ Keep real and simulated service implementations selectable behind the same contr
 
 Person 1 should review ID exposure, event hooks, receiver behavior, parameter bounds and control-handshake recovery. Person 2 should review the event data needed for current snapshots, cumulative metrics, timing boundaries and saved summaries. Person 3 owns the asynchronous wrapper, validator and this contract; update fixtures when agreed definitions change.
 
-Milestones 2-5 provide the shared contract, fake, strict validator/dispatcher, real sender adapter, CLI and injectable GPT command interpretation. The path `validated command -> real transfer -> truthful result` has been verified, and GPT interpretation has been checked offline using a stub and local HTTP fixtures. The independent part of milestone 6 now supplies the summary-provider boundary and labelled fixture analysis. Stop for review before further milestones. Detailed real status/explanations still depend on agreed observation/identity hooks, Person 2's definitions and saved summaries; absent real evidence remains unavailable.
+Milestones 2-5 provide the shared contract, fake, strict validator/dispatcher, real sender adapter, CLI and injectable GPT command interpretation. The path `validated command -> real transfer -> truthful result` has been verified, and GPT interpretation has been checked offline using a stub and local HTTP fixtures. The independent part of milestone 6 now supplies the summary-provider boundary, labelled fixture analysis and a separate explanation HTTP adapter tested offline. Stop for review before further milestones. Detailed real status/explanations still depend on implemented observation/identity hooks and Person 2's actual summaries/events for the accepted metric set; absent real evidence remains unavailable.
 
-### Short note to share with teammates
+### Historical note from the original engine handoff
+
+This original draft is retained for context. Its request to agree metric scope is superseded by the accepted revised set above. Concrete events, storage and identity/hooks integration remain open.
 
 > I pulled Stage 10.5, passed all 78 tests, and verified a real transfer with matching SHA-256 hashes. I'll build the Java validator and an adapter that runs the existing blocking sender in a worker. I'll retain cumulative ACKs/Go-Back-N and initially use your defaults: 1,024-byte chunks, one packet in flight, 200 ms timeout and five consecutive retry rounds.
 >
@@ -235,6 +245,6 @@ Milestones 2-5 provide the shared contract, fake, strict validator/dispatcher, r
 >
 > Person 2: let's agree the event fields, metric definitions, live snapshot and saved summary format. A cumulative ACK may acknowledge several chunks, and the engine's retry-round counter resets, so neither should be mistaken for a lifetime packet count. I'll show unavailable metrics honestly until instrumentation is ready.
 
-This is a draft for the user to share. No message has been sent to teammates by the assistant, and their agreement is not recorded yet.
+No message has been sent to teammates by the assistant. The user has since confirmed Person 2's agreement on the complete revised metric set and supporting fields; that agreement does not imply implemented logs or verified integration hooks.
 
 For setup findings and recommended Maven installation steps, see [Maven setup](maven-setup.md).

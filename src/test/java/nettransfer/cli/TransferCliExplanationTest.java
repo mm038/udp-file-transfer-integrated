@@ -83,7 +83,7 @@ class TransferCliExplanationTest {
         assertTrue(text.contains("duration_ms=1000 ms [OBSERVED]"));
         assertTrue(text.contains("retransmitted_packets=0 packets [OBSERVED]"));
         assertTrue(text.contains("[run=" + fixture.evidence().runId() + "; field=duration_ms] 1000 ms"));
-        assertTrue(text.contains("Offline explanation draft (no command dispatched)"));
+        assertTrue(text.contains("Explanation draft (no command dispatched)"));
         assertEquals(fixture.evidence(), client.requests().get(0).evidence());
         assertEquals(0, service.starts);
     }

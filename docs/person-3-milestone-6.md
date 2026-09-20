@@ -1,5 +1,9 @@
 # Milestone 6: independent explanation boundary
 
+**Historical checkpoint:** this walkthrough records the original boundary committed as `ab3c4c0`, whose verification passed 437 tests. Its file-change lists, test counts and commit commands describe that checkpoint. The separate HTTP adapter is now implemented; see the [milestone 6 HTTP follow-up](person-3-milestone-6-http.md) for current changes, verification and commit guidance. Milestone 7 has not started.
+
+**Current scope:** the user confirms Person 2 has accepted the complete [revised metric set and supporting fields](Metrics_Summary_Revised.md). Actual summaries/logs, serialization/events and verified engine/application identity mapping remain unavailable. The follow-up adds tool-free structured JSON analysis using prompt `explanations-v2` and shared bounded HTTP transport. Its launcher uses `SummaryProvider.unavailable()`, and the REAL-evidence gate still stops before the explanation client. All checks use synthetic fixtures and a local HTTP server; live quality and real measured explanations remain pending. References below to the original draft definitions and absent HTTP adapter describe the earlier checkpoint.
+
 This step implements and tests the parts that do not depend on Person 2: selecting and checking evidence, a read-only summary provider, a separate explanation request/client, evidence-reference validation, and CLI rendering/fallback. The fixtures and scripted answers are explicitly **SYNTHETIC**. Real metric integration remains pending.
 
 The assignment PDF requires explanations to cite recorded numerical measurements and display those measurements alongside the explanation. That describes the eventual integrated system. This step does not claim that fixtures satisfy the assignment's real experiments, logs or measured explanations.
@@ -73,7 +77,7 @@ No changes were made to the UDP engine, real adapter, fake transfer service, sha
 
 **Citations are checked, prose still needs review.** Java verifies every structured numerical reference against the source, and renders source values rather than echoed model numbers. This does not prove every arbitrary prose claim true. Scripted fixture answers are checked offline; live model quality and a real explanation example remain pending. Hypotheses are labelled unproven. Java always displays missing-field reasons and cautions that configured loss is not observed loss, retransmissions are not a loss percentage, timeouts do not prove congestion, and one run cannot establish which setting is faster.
 
-**There is no live explanation adapter yet.** The prompt contract and scripted client exercise the independent flow without an OpenAI call. The existing command HTTP adapter remains unchanged. A future explanation transport must make a separate request without execution tools and preserve the same identity/reference checks. Offline tests do not establish live output quality.
+**HTTP adapter status at this checkpoint.** The original prompt contract and scripted client exercised the independent flow without an OpenAI call; the command HTTP adapter was unchanged. The [current follow-up](person-3-milestone-6-http.md) adds the separate tool-free explanation adapter and retains the identity/reference checks. Offline tests do not establish live output quality.
 
 ## Reading and verification
 
@@ -86,9 +90,11 @@ mvn -o '-Dtest=nettransfer.explanation.*Test,nettransfer.cli.*Test,nettransfer.c
 mvn -o verify
 ```
 
-Verified September 20, 2026: **61 new explanation/CLI tests** passed in the focused run; **18 dispatcher tests** passed separately, including five new identity checks. The final `mvn -o verify` passed **437 tests across 28 classes**, with zero failures/errors/skips, and built the JAR. The [checklist](person-3-task-checklist.md#6-ground-explanations-in-recorded-measurements) records commands and the approved rerun needed for the existing Windows ACL test. The full offline suite includes existing local UDP integration and loopback HTTP tests; it makes no live OpenAI calls. No new manual transfer is claimed, and milestone 4's saved hash evidence is preserved by avoiding `clean`.
+Original checkpoint verified September 20, 2026: **61 new explanation/CLI tests** passed in the focused run; **18 dispatcher tests** passed separately, including five new identity checks. Its `mvn -o verify` passed **437 tests across 28 classes**, with zero failures/errors/skips, and built the JAR. The [checklist](person-3-task-checklist.md#6-ground-explanations-in-recorded-measurements) records commands and the approved rerun needed for the existing Windows ACL test. The full offline suite includes existing local UDP integration and loopback HTTP tests; it makes no live OpenAI calls. No new manual transfer is claimed, and milestone 4's saved hash evidence is preserved by avoiding `clean`. Current HTTP-adapter verification is recorded in the [follow-up](person-3-milestone-6-http.md).
 
-## Review stop and local commit
+## Original checkpoint review stop and local commit
+
+The following notes and commands were for the original boundary, which is already committed. Use the [HTTP follow-up](person-3-milestone-6-http.md) for the current review stop, dependencies and local commit commands. The accepted revised metric set supersedes the earlier request to agree metric scope.
 
 Stop here for review. Milestone 6 remains partially complete because consuming Person 2's actual outputs and agreed definitions is still pending. Milestone 7 and later milestones have not been started or checked off as part of this step.
 

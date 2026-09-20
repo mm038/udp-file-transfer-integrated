@@ -1,6 +1,6 @@
 # Person 3 implementation checklist
 
-Updated September 20, 2026 on branch `person-3/llm-integration`. Engine baseline: `15a3fc36643a70b54c2fc767038ff4cc547cf31b` (Stage 10.5); milestones 2-4 were committed as `1571613`, and milestone 5 as `d9cc443`. Milestones 2-5 are implemented and committed; their recorded verification passed 371 tests (78 baseline + 15 milestone 2 + 123 milestone 3 + 43 milestone 4 + 112 milestone 5) and built the JAR. Milestone 6 now implements the independent offline provider/explanation boundary; its verification is recorded below. The existing engine is unchanged. Person 2's actual outputs, agreed metric/identity contracts and live GPT evaluation remain pending. Earlier real transfer/hash evidence remains under milestones 1 and 4. Milestone 6 synthetic fixtures are not real experiment evidence; no commit or push is made in this step.
+Updated September 20, 2026 on branch `person-3/llm-integration`. Engine baseline: `15a3fc36643a70b54c2fc767038ff4cc547cf31b` (Stage 10.5); milestones 2-4 were committed as `1571613`, milestone 5 as `d9cc443`, and the original independent milestone 6 boundary as `ab3c4c0`. Its separate explanation HTTP adapter is now implemented and verified offline; the latest full verification passed **498 tests across 29 classes** and built the JAR. The user has confirmed that Person 2 agrees to the complete [revised metric set](Metrics_Summary_Revised.md), including supporting fields. Treat that scope as accepted; actual metrics/logs and concrete event/storage/identity integration are still unavailable. Earlier real transfer/hash evidence remains under milestones 1 and 4. This follow-up is limited to milestone 6; milestone 7, live API calls, commits and pushes have not started.
 
 Work through the milestones in order; add tests alongside each component rather than postponing them until milestone 7. The engine now exists, so connect a real adapter before GPT. Keep the simulated service for deterministic tests and cases the real engine cannot yet expose.
 
@@ -18,7 +18,10 @@ The assignment outcomes are natural-language control, live status, evidence-base
 - [ ] Share the brief teammate note in section 9 of the [handoff](person-3-handoff.md), then record their feedback on the proposed hooks, IDs, lifecycle, settings, metrics, and ownership.
 - [ ] Agree a backward-compatible engine overload accepting a caller-supplied UUID and an optional/no-op observer, preserving existing engine callers.
 - [ ] Coordinate bounded control-handshake recovery, peer/transfer-ID validation, and receiver output protection with Person 1 before impaired integrated tests.
-- [ ] Agree Person 2's event/metric/summary contract and keep unresolved assumptions visible; Person 2 retains ownership of those implementations.
+- [x] Record the user's confirmation that Person 2 agrees to the complete revised metric set, including supporting measurement, configuration and metadata fields.
+- [ ] Finalize the implementable event/storage/identity contract around the accepted metric set (concrete serialization, event records, ID association, hooks and record finalization). Person 2 retains ownership of measurement/logging; field-scope agreement alone does not provide those implementations.
+- [x] Record and analyze Person 2's proposed fields from `Metrics_Summary.docx`; preserve the distinction between her proposal, illustrative JSON and real measured outputs. See the [review and open decisions](person-2-metrics-review.md).
+- [x] Prepare a [revised summary](Metrics_Summary_Revised.md) and [Word copy](Metrics_Summary_Revised.docx), separating assignment requirements from design choices and correcting the illustrative packet-count example. The user subsequently confirmed Person 2's agreement to the complete set; milestone 7 implementation remains paused.
 - [ ] Confirm the approved OpenAI API route and arrange credentials for later live tests; keep offline development independent of credentials.
 
 The matching baseline SHA-256 is `50AEF3550D0C6311A8A1F616CFAE1E5DB2ADFF5CE78B44F833F822139DD1A93F`. This proves the recorded happy-path transfer and test run, not fault recovery or later Person 3 integration. The existing receiver handles one transfer per process; restart it for each manual run and use fresh output paths until Person 1 confirms no-overwrite behavior.
@@ -156,27 +159,36 @@ The default API request can occupy the console for about 60.1 seconds across two
 
 ## 6. Ground explanations in recorded measurements
 
+**Current status:** the original provider/fixture/explanation boundary is committed, and the separate Person 3 explanation HTTP adapter is now implemented and verified using synthetic evidence and a loopback HTTP endpoint. Actual measured integration still waits for Person 2's outputs and verified identity/hooks connection. Live model evaluation remains separate milestone 8 work. This finishes the currently scoped independent milestone 6 implementation; it does not complete real measured integration or start milestone 7.
+
 - [x] Define and test a summary-provider boundary using explicitly labelled synthetic fixtures; return `EVIDENCE_UNAVAILABLE` for real runs while real saved summaries/contracts are pending.
 - [x] Verify the selected service run/transfer mapping, then the fixture's run/transfer/provenance/nullable protocol identity before analysis; reject mismatches and never substitute fixtures for a real run.
 - [ ] Consume Person 2's agreed metric values and definitions; treat missing fields and engine `-1` counters as unavailable rather than zero.
-- [x] Distinguish configured impairment from observed measurements in the synthetic field kinds and display; preserve limitations about retransmissions, loss, timeouts and single-run comparisons. Real impairment definitions remain pending.
+- [x] Distinguish configured impairment from observed measurements in the synthetic field kinds and display; preserve limitations about retransmissions, loss, timeouts and single-run comparisons. The complete metric set is now accepted; adoption of the producer's actual observations remains pending.
 - [x] Build immutable bounded explanation input from the supplied synthetic summary; no event excerpt is needed for these fixtures. Actual event parsing waits for Person 2's agreed format.
-- [x] Define a separate analysis request/prompt contract requiring numerical citations, observations versus hypotheses, and insufficient-evidence limitations; exercise it with an offline scripted client. No execution tools or live explanation transport are included.
+- [x] Define a separate analysis request/prompt contract requiring numerical citations, observations versus hypotheses, and insufficient-evidence limitations; exercise it with an offline scripted client. The follow-up HTTP client preserves this separate analysis boundary without execution tools.
 - [x] Validate returned run/transfer IDs and cited field/value/unit references, display original supplied measurements and missing reasons beside the draft, and retain valid evidence when analysis fails.
 - [ ] Integrate Person 2's real saved summaries and agreed identity/measurement definitions; verify a real explanation beside those outputs.
-- [ ] Implement and verify a separate tool-free explanation HTTP adapter, then evaluate live prose and prompt effectiveness in the later opt-in live work. Offline reference checks do not establish prose truth.
+- [x] Person 3 independent work: implement and verify a separate tool-free explanation HTTP adapter using synthetic evidence and a loopback HTTP endpoint. No live OpenAI calls were made; request/decoder/transport and flow checks passed.
+- [ ] Later milestone 8 work: evaluate live explanation prose and prompt effectiveness. Offline reference checks do not establish prose truth.
 
 **Done when:** an explanation can be traced to its run and displayed evidence, including cases where the available measurements cannot establish a cause.
 
-**Independent implementation:** see the [milestone 6 walkthrough](person-3-milestone-6.md) for the exact files, flow, fixture definitions, bounds, limitations and local commit commands. The provider is a read-only boundary, not a storage implementation. `person-3-explanation-fixture-1` is a Person 3 test format, not an agreed team contract. The default CLI never enables fixtures; the real-run gate rejects even matching-ID synthetic records before provider/model invocation.
+**Independent implementation:** see the original [milestone 6 walkthrough](person-3-milestone-6.md) and current [HTTP follow-up](person-3-milestone-6-http.md) for exact files, flow, definitions, bounds, limitations and local commit commands. The provider is a read-only boundary, not a storage implementation. `person-3-explanation-fixture-1` is a Person 3 test format, not the agreed producer schema. The default CLI never enables fixtures; the real-run gate rejects even matching-ID synthetic records before provider/model invocation.
 
-**Verified September 20, 2026:** the focused `mvn -o '-Dtest=ExplanationFlowTest,ExplanationBoundaryTest,TransferCliExplanationTest' test` passed **61 new tests** (27 flow, 21 boundary, 13 CLI). The separately focused `CommandDispatcherTest` passed all **18 tests**, including five new identity checks. After integration, `mvn -o verify` passed **437 tests across 28 classes**, with zero failures, errors or skips, and built `target/udp-file-transfer.jar` (371 previous + 66 new).
+**Original checkpoint, September 20, 2026:** the focused `mvn -o '-Dtest=ExplanationFlowTest,ExplanationBoundaryTest,TransferCliExplanationTest' test` passed **61 new tests** (27 flow, 21 boundary, 13 CLI). The separately focused `CommandDispatcherTest` passed all **18 tests**, including five new identity checks. After integration, `mvn -o verify` passed **437 tests across 28 classes**, with zero failures, errors or skips, and built `target/udp-file-transfer.jar` (371 previous + 66 new).
 
 The first full run found a regression in CLI explanatory wording and the known sandbox restriction on the existing temporary Windows file-ACL test. Restoring the useful distinction that an in-memory outcome is not a persisted experiment log resolved the assertion. The approved rerun outside the sandbox passed the complete suite, including the ACL check. Java 17 was configured only for the process from `.vscode/settings.json`; offline Maven used cached dependencies. No live OpenAI request or new manual transfer was made. Existing UDP/loopback-HTTP regression tests ran. `clean` was not run, the milestone 4 verification file still exists, and packaging regenerated the pre-existing untracked `dependency-reduced-pom.xml`. The final diff leaves the engine, adapter, metrics contract, dependencies and `.gitignore` unchanged.
+
+**HTTP follow-up verified September 20, 2026:** `mvn -o '-Dtest=ResponsesGptClientTest,GptSettingsTest' test` passed **77 existing tests** after shared transport extraction. `mvn -o '-Dtest=ResponsesExplanationClientTest' test` passed **59 new tests**. Two new launcher configuration checks bring this follow-up to **61 added tests**. Final `mvn -o verify` passed **498 tests across 29 classes**, zero failures/errors/skips, and built the JAR. The first adapter run caught missing completion-status and noncanonical UUID acceptance; both were tightened before verification. The full sandbox run had only the known existing Windows ACL permission-test error; the approved rerun outside the sandbox passed all tests. The API key was cleared in the test process, Maven ran offline, and no live OpenAI call or new manual transfer was made. `clean` was avoided to preserve prior transfer evidence.
+
+The new client explicitly projects frozen evidence into a strict structured-output request with no tools; `ResponsesTransport` reuses the established retry/deadline/body-limit/credential safeguards. The launcher installs the client with an unavailable provider; the existing REAL gate still returns `EVIDENCE_UNAVAILABLE` before HTTP. Exact decimal/null preservation, input/output identity, unsupported citations, HTTP failures and evidence retention are covered. The complete agreed producer field-set audit remains milestone 7 work, and live prose quality remains unverified. See the [follow-up walkthrough](person-3-milestone-6-http.md).
 
 **Review stop:** only the independent milestone 6 work is included. Person 1's engine and identity/observer extensions, Person 2's metrics/logging, live API calls, commits and pushes are outside this step. Leave the dependent items above pending. Milestones 7 onward are not started or marked complete here.
 
 ## 7. Complete the offline regression suite
+
+**Planning update after metric-set agreement:** this milestone has not started. Its offline scope can proceed without actual logs: audit the existing 498-test coverage first, then add meaningful gaps using the accepted field set and explicitly synthetic fixtures. Do not recreate tests already covered by milestones 2-6 or assume the generic fixtures already implement the complete accepted set. The independent explanation HTTP adapter and its offline checks are now available from milestone 6. Concrete producer parsing and real-output acceptance checks remain dependent integration work under milestones 6 and 9; missing real logs need not prevent completion of a clearly scoped offline milestone 7. Keep the REAL-evidence gate in place.
 
 - [ ] Cover valid commands, wrong JSON types, unknown/extra fields, unknown files/receivers, invalid bounds, missing essentials, and unsupported requests.
 - [ ] Supply an invalid model-generated proposal through the stub GPT client and prove that Java rejects it with no engine side effect.
@@ -185,25 +197,33 @@ The first full run found a regression in CLI explanatory wording and the known s
 - [ ] Use a local HTTP test endpoint to verify API request construction and parsing of representative success, refusal, incomplete, malformed, timeout, and error responses.
 - [ ] Verify that API failures/retries cannot duplicate transfer starts and that credentials are absent from captured logs.
 - [ ] Cover explanation fixtures with missing metrics, engine failure, and insufficient causal evidence; avoid assertions that require exact prose.
+- [ ] Add explicitly synthetic coverage for the accepted complete metric set: units/precision, configured versus observed fields, typed success/integrity/null handling, unavailable measurements and inconsistent counters. Use controlled identity mappings for boundary tests; actual producer identity association and serialized output acceptance remain later integration checks. Keep earlier generic fixtures as boundary tests.
+- [ ] Audit the separate analysis HTTP adapter's request/response/failure checks implemented in milestone 6; reuse its 59 cases and add only meaningful gaps. Keep analysis separate from command tools and live API evaluation.
 - [ ] Run the complete offline suite without an API key or live OpenAI access and document its command and expected scope.
 
 **Done when:** offline checks pass reproducibly and show which behavior belongs to Java validation, API handling, and the simulated engine. These checks do not claim UDP correctness or real network performance.
 
 ## 8. Evaluate live GPT before the full impaired demo
 
+Agreement on the metric set does not supply measured evidence. Live model evaluation can use explicitly synthetic summaries without Person 2's logs; the separate analysis HTTP adapter is now implemented and tested offline. Working API access and an explicitly enabled live evaluation path remain pending. This does not complete real measured explanation acceptance.
+
 - [ ] Add an explicitly enabled live-test path that is excluded from the normal offline test run.
 - [ ] Create a small prompt set covering clear starts, paraphrases, units, omissions, ambiguous references, status, unsupported operations, and explanation questions.
 - [ ] Run the prompt set with the configurable recommended model and record model ID, test date, prompts, proposed commands, and Java decisions without secrets.
 - [ ] Evaluate command/argument correctness and whether clarification was appropriate rather than comparing exact response wording.
 - [ ] Check explanations against known fixture measurements for unsupported numbers or causal claims; record failures and adjust prompts/schemas as needed.
+- [ ] Include agreed producer field names/units and questions that distinguish configured loss from observed drops, ACK arrivals from delivered bytes, and protocol success from verified integrity; label all fixture results synthetic.
 - [ ] Demonstrate natural-language start with the real adapter, basic observable status, fixture-grounded explanation in clearly labelled test mode, and deterministic Java rejection.
 
 **Done when:** live GPT behavior has been reviewed against explicit expectations, and every demonstration using fake data is labelled synthetic.
 
 ## 9. Complete observer, metrics, and fault-scenario integration
 
+- [ ] Implement against the concrete producer handoff: verified `experiment_id`/application/wire association, schema/definition versions, timing/outcome/counter semantics and finalized serialized records. Use the accepted metric set; resolve remaining technical details rather than requesting field-scope approval again.
+- [ ] Verify that actual producer summaries and linked logs supply the accepted assignment evidence (including delivered bytes, acknowledged/timeout/duplicate counts, ratios, overhead, event logs and applicable RTT statistics); record which artifact provides each item.
 - [ ] Adopt Person 1's backward-compatible caller-UUID/observer hooks and verify ID mapping across the adapter, engine events, and Person 2's summaries.
 - [ ] Connect real observer snapshots and Person 2's saved summaries; expose detailed states/progress only when supported by actual observations.
+- [ ] Preserve supplied seconds/Mbps values and configured/observed meanings; reconcile success and nullable integrity with the selected engine outcome. Retain missing evidence and reject incorrect identity associations. Do not substitute DATA/ACK counts for unique progress.
 - [ ] With Person 1, verify bounded START/FINISH recovery, peer/transfer-ID checks, receiver no-overwrite behavior, and receiver restart expectations for the selected scenarios.
 - [ ] Run real success/failure transfers, query observed progress while active, and verify that completion follows integrity confirmation; a rejected command must start no network activity.
 - [ ] With Person 2, run a loss/delay scenario and explain its actual collected metrics beside the underlying evidence.
@@ -213,10 +233,13 @@ The first full run found a regression in CLI explanatory wording and the known s
 
 ## 10. Prepare documentation and the final demonstration
 
+Documentation and a draft demo script can advance independently when authorized. The final measured examples and rehearsal wait for milestone 9's real integration; synthetic results do not replace them.
+
 - [ ] Write README instructions for Java/Maven setup, configuration, credentials, building, offline tests, opt-in live tests, fake mode, and real mode.
 - [ ] Document supported commands, byte-to-packet window conversion, retry-round semantics, ID resolution, receiver restart/output policy, and unavailable metrics.
 - [ ] Give Person 1 the validation/dispatch boundary description and interaction flow for the protocol specification and sequence diagram.
 - [ ] Give Person 2 the agreed metric/display requirements and ensure their evaluation uses actual experiment outputs rather than fixtures.
+- [ ] Document the actual agreed summary/event format and verify full assignment evidence coverage; the proposed summary alone and its illustrative JSON are not experiment results.
 - [ ] Write a repeatable demo script covering natural-language transfer, live status, loss/delay metrics, an explanation beside evidence, and deterministic rejection by Java.
 - [ ] Rehearse the script from a fresh terminal using the documented commands and record the required configuration and sample file names.
 - [ ] Review the final diff for credentials and misleading synthetic results; update the handoff note to the final implemented contract and mark only verified tasks complete.

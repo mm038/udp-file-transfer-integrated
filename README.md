@@ -2,7 +2,7 @@
 
 The Stage 10.5 sender/receiver implements file transfer over UDP using cumulative ACKs, Go-Back-N retransmission, CRC32 and final SHA-256 verification. Person 3 milestones 2-5 add shared types, deterministic command validation, an asynchronous real-engine adapter, a terminal interface and GPT command interpretation.
 
-GPT interpretation is implemented and tested offline; live model evaluation remains pending. Milestone 6 adds an offline explanation boundary with explicitly synthetic fixtures, identity checks and evidence references. Engine observation/identity hooks and Person 2's measured metrics/logging are still pending. The CLI reports coarse real outcomes and `EVIDENCE_UNAVAILABLE` for real explanations without recorded summaries.
+GPT interpretation is implemented and tested offline; live model evaluation remains pending. Milestone 6 adds an explanation boundary and a separate HTTP adapter, checked offline with explicitly synthetic fixtures, identity checks and evidence references. The complete revised metric set is accepted, but engine observation/identity hooks and Person 2's measured metrics/logging are still pending. The CLI reports coarse real outcomes and `EVIDENCE_UNAVAILABLE` for real explanations without recorded summaries.
 
 ## Build and test
 
@@ -69,7 +69,9 @@ Direct commands remain available without GPT credentials. Natural language reads
 
 For example, `Send report to receiver-a with a 64 KiB window` goes through GPT and then Java validation. Use `ask status of my last transfer` to send a sentence that begins with a reserved direct command to GPT. `explain why the last transfer failed` uses interpretation to select the run, then enters the separate evidence flow. For a real run it shows the coarse outcome and reports missing recorded measurements; it never inserts fixture values. A direct JSON `explain` needs no GPT request.
 
-The offline explanation tests inject a `SyntheticSummaryProvider` and a separate `StubExplanationClient`. Java verifies run, transfer, provenance and nullable wire identity, bounds the input, checks cited field values/units, and displays original evidence beside the scripted prose. Missing metrics remain unavailable; analysis failure keeps the valid measurements visible. This is a Person 3 draft boundary, not Person 2's agreed summary schema. There is no live explanation transport or production fixture switch in this step. See the [milestone 6 walkthrough](docs/person-3-milestone-6.md) for the code and review guide.
+The explanation tests inject a `SyntheticSummaryProvider` with either a scripted `StubExplanationClient` or the separate `ResponsesExplanationClient` pointed at a local HTTP server. Java verifies run, transfer, provenance and nullable wire identity before analysis, then checks cited field values and units. The HTTP adapter sends the frozen evidence with prompt `explanations-v2`, requests a strict JSON explanation, supplies no execution tools, and rejects tool-call output. It shares bounded HTTP transport with command interpretation while keeping its request and response handling separate. Original evidence and missing reasons remain visible when analysis fails.
+
+The launcher constructs this explanation client using the existing environment settings, with `SummaryProvider.unavailable()`. Client construction makes no HTTP call, and the REAL-evidence gate returns `EVIDENCE_UNAVAILABLE` before invoking it. There is no production fixture switch. The accepted [metric set](docs/Metrics_Summary_Revised.md) still needs actual producer output, serialization/events and verified identity mapping before real integration. Offline HTTP checks do not establish live model quality. See the [original milestone 6 walkthrough](docs/person-3-milestone-6.md) and its [HTTP adapter follow-up](docs/person-3-milestone-6-http.md) for the code, checks and remaining dependencies.
 
 The CLI remembers at most two clarification exchanges. A direct command, API failure, rejection or executed command clears that context. Model text is labelled as non-execution; only Java reports an accepted start or a transfer outcome. The UDP worker continues during an API request, but the console waits for that bounded request before accepting its next line (up to about 60.1 seconds with default retries/deadlines).
 
@@ -87,7 +89,8 @@ This legacy command calls the blocking engine directly. The new CLI uses the val
 
 ## Review notes
 
-- [Milestone 6 walkthrough](docs/person-3-milestone-6.md): independent offline provider/explanation flow, identity checks, synthetic fixtures and remaining dependencies.
+- [Milestone 6 HTTP adapter follow-up](docs/person-3-milestone-6-http.md): separate structured explanations, shared HTTP safeguards, offline verification and review stop.
+- [Original milestone 6 walkthrough](docs/person-3-milestone-6.md): provider/explanation flow, identity checks and synthetic fixtures at the committed 437-test checkpoint.
 - [Milestone 5 walkthrough](docs/person-3-milestone-5.md): GPT interface, Responses API wrapper, clarification context, validation and offline checks.
 - [Milestone 4 walkthrough](docs/person-3-milestone-4.md): adapter, resource ownership, status meanings, CLI selection and limitations.
 - [Milestone 3 walkthrough](docs/person-3-milestone-3.md): strict parsing, approved resources and dispatch.

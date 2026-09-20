@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import nettransfer.llm.GptException;
 import nettransfer.llm.InterpretationRequest;
+import nettransfer.explanation.ExplanationRequest;
+import nettransfer.explanation.SyntheticExplanationFixtures;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -34,6 +36,28 @@ class TransferCliMainTest {
     private static InterpretationRequest request() {
         return new InterpretationRequest(UUID.randomUUID(), "Hello", List.of("report"), List.of("receiver-a"),
                 null, null, null, null, List.of());
+    }
+
+    @Test
+    void explanationCredentialsAreCheckedOnlyWhenAnalysisIsInvoked() {
+        var client = assertDoesNotThrow(() -> TransferCliMain.explanationFromEnvironment(Map.of()));
+        var error = assertThrows(GptException.class, () -> client.explain(explanationRequest()));
+        assertEquals(GptException.Code.MISSING_CREDENTIALS, error.code());
+    }
+
+    @Test
+    void invalidExplanationConfigurationDoesNotAbortConsoleStartup() {
+        var client = assertDoesNotThrow(() -> TransferCliMain.explanationFromEnvironment(
+                Map.of("OPENAI_API_KEY", "test-secret", "OPENAI_REQUEST_TIMEOUT_MS", "invalid")));
+        var error = assertThrows(GptException.class, () -> client.explain(explanationRequest()));
+        assertEquals(GptException.Code.INVALID_CONFIGURATION, error.code());
+        assertFalse(error.toString().contains("test-secret"));
+    }
+
+    private static ExplanationRequest explanationRequest() {
+        var fixture = SyntheticExplanationFixtures.baseline();
+        return new ExplanationRequest(UUID.randomUUID(), "Explain these synthetic measurements",
+                fixture.evidence(), fixture.state(), fixture.integrity());
     }
 
     @Test
