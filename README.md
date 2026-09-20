@@ -4,6 +4,8 @@ The Stage 10.5 sender/receiver implements file transfer over UDP using cumulativ
 
 GPT interpretation is implemented and tested offline; live model evaluation remains pending. Milestone 6 adds an explanation boundary and a separate HTTP adapter, checked offline with explicitly synthetic fixtures, identity checks and evidence references. The complete revised metric set is accepted, but engine observation/identity hooks and Person 2's measured metrics/logging are still pending. The CLI reports coarse real outcomes and `EVIDENCE_UNAVAILABLE` for real explanations without recorded summaries.
 
+Milestone 7's independent offline regression suite is complete: **566 tests across 30 classes**, zero failures/errors/skips, and a successful JAR build. The [coverage audit and walkthrough](docs/person-3-milestone-7.md) explain the reused tests and 68 added checks. Accepted-metric fixtures cover all 26 numerical fields plus typed test metadata; they are not producer files or real experimental evidence. Producer parsing/outcome reconciliation and real integration remain pending. Stop for review before milestone 8.
+
 ## Build and test
 
 Use Java 17 and a standalone Maven installation:
@@ -89,6 +91,7 @@ This legacy command calls the blocking engine directly. The new CLI uses the val
 
 ## Review notes
 
+- [Milestone 7 regression audit](docs/person-3-milestone-7.md): existing coverage, accepted-metric synthetic checks, exact changes, verified results, remaining dependencies and local commit guidance.
 - [Milestone 6 HTTP adapter follow-up](docs/person-3-milestone-6-http.md): separate structured explanations, shared HTTP safeguards, offline verification and review stop.
 - [Original milestone 6 walkthrough](docs/person-3-milestone-6.md): provider/explanation flow, identity checks and synthetic fixtures at the committed 437-test checkpoint.
 - [Milestone 5 walkthrough](docs/person-3-milestone-5.md): GPT interface, Responses API wrapper, clarification context, validation and offline checks.

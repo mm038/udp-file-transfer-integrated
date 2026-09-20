@@ -11,6 +11,7 @@ import nettransfer.control.TransferState;
 import nettransfer.control.TransferSummary;
 import nettransfer.control.command.CommandProposal;
 import nettransfer.control.command.TransferConfiguration;
+import nettransfer.explanation.AcceptedMetricFixtures;
 import nettransfer.explanation.ExplanationClient;
 import nettransfer.explanation.ExplanationDraft;
 import nettransfer.explanation.ExplanationFlow;
@@ -25,6 +26,8 @@ import nettransfer.llm.GptClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.PrintWriter;
 import java.io.StringReader;
@@ -39,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -85,6 +89,51 @@ class TransferCliExplanationTest {
         assertTrue(text.contains("[run=" + fixture.evidence().runId() + "; field=duration_ms] 1000 ms"));
         assertTrue(text.contains("Explanation draft (no command dispatched)"));
         assertEquals(fixture.evidence(), client.requests().get(0).evidence());
+        assertEquals(0, service.starts);
+    }
+
+    static Stream<Fixture> acceptedMetricScenarios() {
+        return Stream.of(AcceptedMetricFixtures.baseline().analysis(),
+                AcceptedMetricFixtures.precisionAndAccounting().analysis(),
+                AcceptedMetricFixtures.partialFailure().analysis(),
+                AcceptedMetricFixtures.integrityFailure().analysis(),
+                AcceptedMetricFixtures.receiverVerifiedWithoutSenderConfirmation().analysis(),
+                AcceptedMetricFixtures.zeroByte().analysis());
+    }
+
+    @ParameterizedTest
+    @MethodSource("acceptedMetricScenarios")
+    void acceptedSyntheticMetricsRetainExactValuesUnitsKindsDefinitionsAndMissingReasons(Fixture fixture) {
+        service.add(fixture);
+        var client = new StubExplanationClient(List.of(fixture.draft()));
+        use(flow(fixture, client));
+
+        String text = command(explain(fixture.evidence().runId()));
+
+        assertTrue(text.contains("EXPLAINED:"), text);
+        assertTrue(text.contains("Evidence [SYNTHETIC] " + fixture.evidence().label()), text);
+        assertTrue(text.contains("[SYNTHETIC] " + fixture.state()), text);
+        assertTrue(text.contains("integrity=" + fixture.integrity() + ";"), text);
+        assertTrue(text.contains("run_id=" + fixture.evidence().runId()), text);
+        assertTrue(text.contains("transfer_id=" + fixture.evidence().transferId()), text);
+        List<String> lines = text.lines().toList();
+        for (RecordedSummary.Field field : fixture.evidence().fields()) {
+            String value = field.value() == null ? "unavailable" : field.value().toPlainString();
+            String expected = "  " + field.id() + "=" + value + " " + field.unit()
+                    + " [" + field.kind() + "]; " + field.definition();
+            int index = lines.indexOf(expected);
+            assertTrue(index >= 0, () -> "Missing exact supplied field: " + expected + "\n" + text);
+            assertEquals(1L, lines.stream().filter(line -> line.startsWith("  " + field.id() + "=")).count(),
+                    "Each supplied metric is displayed once without a competing inferred value");
+            if (field.value() == null) {
+                assertTrue(index + 1 < lines.size());
+                assertEquals("    Missing evidence: " + field.unavailableReason(), lines.get(index + 1));
+            }
+        }
+        assertEquals(1, client.requests().size());
+        assertSame(fixture.evidence(), client.requests().get(0).evidence());
+        assertEquals(fixture.state(), client.requests().get(0).state());
+        assertEquals(fixture.integrity(), client.requests().get(0).integrity());
         assertEquals(0, service.starts);
     }
 
