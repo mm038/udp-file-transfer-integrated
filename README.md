@@ -2,7 +2,7 @@
 
 The Stage 10.5 sender/receiver implements file transfer over UDP using cumulative ACKs, Go-Back-N retransmission, CRC32 and final SHA-256 verification. Person 3 milestones 2-5 add shared types, deterministic command validation, an asynchronous real-engine adapter, a terminal interface and GPT command interpretation.
 
-GPT interpretation is implemented and tested offline; live model evaluation remains pending. Engine observation/identity hooks and Person 2's measured metrics/logging are still pending. The CLI reports coarse real outcomes and marks unavailable measurements explicitly. Generated explanations belong to milestone 6.
+GPT interpretation is implemented and tested offline; live model evaluation remains pending. Milestone 6 adds an offline explanation boundary with explicitly synthetic fixtures, identity checks and evidence references. Engine observation/identity hooks and Person 2's measured metrics/logging are still pending. The CLI reports coarse real outcomes and `EVIDENCE_UNAVAILABLE` for real explanations without recorded summaries.
 
 ## Build and test
 
@@ -59,7 +59,7 @@ The Java defaults are 1,024-byte chunks, a 1,024-byte window (one packet), a 200
 | `status last` / `status last transfer` | Select the most recent terminal run, even while another runs |
 | `status <UUID>` | Select that exact historical/current application transfer ID |
 | `status {"transfer_id":null}` | Structured status with Java's default selection |
-| `explain {"run_id":null,"question":"What happened?"}` | Display the selected frozen outcome and question; no GPT prose or persisted experiment report yet |
+| `explain {"run_id":null,"question":"What happened?"}` | Verify the selected frozen outcome's identity; real recorded measurements remain `EVIDENCE_UNAVAILABLE` |
 | `ask <sentence>` or an ordinary sentence | Ask the configured GPT client to propose one command, then independently validate it in Java |
 | `exit` | Refuse while active; leave after completion/failure |
 
@@ -67,7 +67,9 @@ Every declared JSON field is required. Nullable settings select Java defaults; o
 
 Direct commands remain available without GPT credentials. Natural language reads `OPENAI_API_KEY` from the environment and uses `OPENAI_MODEL` (default `gpt-5-mini`). Optional `OPENAI_CONNECT_TIMEOUT_MS` and `OPENAI_REQUEST_TIMEOUT_MS` configure API deadlines; their defaults are 5,000 and 30,000 ms. Values must be 100-120,000 ms. These are separate from the UDP timeout. See the [milestone 5 walkthrough](docs/person-3-milestone-5.md) for configuration and the offline test approach.
 
-For example, `Send report to receiver-a with a 64 KiB window` goes through GPT and then Java validation. Use `ask status of my last transfer` to send a sentence that begins with a reserved direct command to GPT. `explain why the last transfer failed` selects the frozen outcome and question only; it does not yet generate an explanation.
+For example, `Send report to receiver-a with a 64 KiB window` goes through GPT and then Java validation. Use `ask status of my last transfer` to send a sentence that begins with a reserved direct command to GPT. `explain why the last transfer failed` uses interpretation to select the run, then enters the separate evidence flow. For a real run it shows the coarse outcome and reports missing recorded measurements; it never inserts fixture values. A direct JSON `explain` needs no GPT request.
+
+The offline explanation tests inject a `SyntheticSummaryProvider` and a separate `StubExplanationClient`. Java verifies run, transfer, provenance and nullable wire identity, bounds the input, checks cited field values/units, and displays original evidence beside the scripted prose. Missing metrics remain unavailable; analysis failure keeps the valid measurements visible. This is a Person 3 draft boundary, not Person 2's agreed summary schema. There is no live explanation transport or production fixture switch in this step. See the [milestone 6 walkthrough](docs/person-3-milestone-6.md) for the code and review guide.
 
 The CLI remembers at most two clarification exchanges. A direct command, API failure, rejection or executed command clears that context. Model text is labelled as non-execution; only Java reports an accepted start or a transfer outcome. The UDP worker continues during an API request, but the console waits for that bounded request before accepting its next line (up to about 60.1 seconds with default retries/deadlines).
 
@@ -85,6 +87,7 @@ This legacy command calls the blocking engine directly. The new CLI uses the val
 
 ## Review notes
 
+- [Milestone 6 walkthrough](docs/person-3-milestone-6.md): independent offline provider/explanation flow, identity checks, synthetic fixtures and remaining dependencies.
 - [Milestone 5 walkthrough](docs/person-3-milestone-5.md): GPT interface, Responses API wrapper, clarification context, validation and offline checks.
 - [Milestone 4 walkthrough](docs/person-3-milestone-4.md): adapter, resource ownership, status meanings, CLI selection and limitations.
 - [Milestone 3 walkthrough](docs/person-3-milestone-3.md): strict parsing, approved resources and dispatch.

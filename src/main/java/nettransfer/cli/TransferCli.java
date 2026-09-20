@@ -14,6 +14,8 @@ import nettransfer.control.command.TransferConfiguration;
 import nettransfer.llm.GptClient;
 import nettransfer.llm.GptException;
 import nettransfer.llm.InterpretationRequest;
+import nettransfer.explanation.ExplanationFlow;
+import nettransfer.explanation.ExplanationRequest;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -32,6 +34,7 @@ public final class TransferCli {
     private final BufferedReader input;
     private final PrintWriter output;
     private final GptClient gpt;
+    private final ExplanationFlow explanations;
     private final List<InterpretationRequest.Turn> clarificationHistory = new ArrayList<>();
     private UUID pendingRequestId;
     private CommandDispatcher.Selection current = CommandDispatcher.Selection.none();
@@ -46,11 +49,18 @@ public final class TransferCli {
     /** Both the offline stub and HTTP adapter feed the same deterministic dispatcher. */
     public TransferCli(TransferService service, TransferConfiguration configuration,
                        Reader input, PrintWriter output, GptClient gpt) {
+        this(service, configuration, input, output, gpt, ExplanationFlow.unavailable());
+    }
+
+    /** Explicit injection is required for synthetic offline explanation fixtures. */
+    public TransferCli(TransferService service, TransferConfiguration configuration,
+                       Reader input, PrintWriter output, GptClient gpt, ExplanationFlow explanations) {
         this.service = Objects.requireNonNull(service, "service");
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.input = new BufferedReader(Objects.requireNonNull(input, "input"));
         this.output = Objects.requireNonNull(output, "output");
         this.gpt = Objects.requireNonNull(gpt, "gpt");
+        this.explanations = Objects.requireNonNull(explanations, "explanations");
         dispatcher = new CommandDispatcher(new CommandParser(), new CommandValidator(configuration), service);
     }
 
@@ -218,7 +228,8 @@ public final class TransferCli {
             output.println("Selected frozen outcome; question: " + selected.question());
             snapshot(summary.finalSnapshot());
             output.println("integrity=" + summary.integrity() + "; outcome=" + summary.message());
-            output.println("No GPT explanation is generated. This in-memory outcome is not a persisted experiment log; real measurement integration is pending.");
+            output.println("This in-memory outcome is not a persisted experiment log.");
+            explanation(explanations.explain(summary, selected.question()));
         } else if (result instanceof DispatchResult.Clarification clarification) {
             output.println("Clarification: " + clarification.question());
         } else if (result instanceof DispatchResult.Unsupported unsupported) {
@@ -226,6 +237,47 @@ public final class TransferCli {
         } else if (result instanceof DispatchResult.Rejected rejected) {
             output.println(rejected.error().code() + ": " + rejected.error().message());
         }
+    }
+
+    private void explanation(ExplanationFlow.Result result) {
+        output.println(result.status() + ": " + result.message());
+        var evidence = result.evidence();
+        if (evidence != null) {
+            output.println("Evidence [" + evidence.source() + "] " + evidence.label()
+                    + "; definition_version=" + evidence.definitionVersion()
+                    + "; prompt_version=" + ExplanationRequest.PROMPT_VERSION);
+            output.println("run_id=" + evidence.runId() + "; transfer_id=" + evidence.transferId()
+                    + "; protocol_transfer_id=" + value(evidence.protocolTransferId())
+                    + "; captured_at=" + evidence.capturedAt());
+            for (var field : evidence.fields()) {
+                output.println("  " + field.id() + "="
+                        + (field.value() == null ? "unavailable" : field.value().toPlainString())
+                        + " " + field.unit() + " [" + field.kind() + "]; " + field.definition());
+                if (field.value() == null) {
+                    output.println("    Missing evidence: " + field.unavailableReason());
+                }
+            }
+            output.println("Limits: synthetic draft evidence only. Configured impairment is not observed loss;"
+                    + " retransmissions do not establish loss percentage; timeouts do not prove congestion."
+                    + " A single run cannot establish which setting is faster.");
+        }
+        var draft = result.draft();
+        if (draft == null) {
+            output.println("No GPT explanation is generated. Available Java evidence is shown above.");
+            return;
+        }
+        output.println("Offline explanation draft (no command dispatched):");
+        for (var observation : draft.observations()) {
+            output.println("Observation: " + observation.text());
+            for (var reference : observation.references()) {
+                // Print the source value, not the model's copy, even after reference validation.
+                var field = evidence.fields().stream().filter(f -> f.id().equals(reference.fieldId())).findFirst().orElseThrow();
+                output.println("  [run=" + evidence.runId() + "; field=" + field.id() + "] "
+                        + field.value().toPlainString() + " " + field.unit() + " [" + field.kind() + "]");
+            }
+        }
+        draft.hypotheses().forEach(text -> output.println("Hypothesis (unproven): " + text));
+        draft.limitations().forEach(text -> output.println("Limitation: " + text));
     }
 
     /** Observe terminal state before selecting a run, accepting a new start, or exiting. */
@@ -278,7 +330,8 @@ public final class TransferCli {
                 An explicit UUID can select older history; unknown or ambiguous references are rejected.
                 Use ask to interpret a sentence beginning with a reserved direct command such as status.
                 A direct command clears pending clarification context. Model text never acknowledges execution.
-                Explain selects frozen outcome evidence only; generated explanations and real metrics/logging are pending.
+                Explain checks a selected frozen outcome, then requires a matching recorded summary.
+                Real recorded measurements are unavailable pending Person 2; synthetic analysis requires explicit test injection.
                 Exit is refused while a transfer is active. EOF/process shutdown interrupts active work.
                 Start a receiver separately before each transfer; this console does not start one.
                 """);

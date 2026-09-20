@@ -1,11 +1,13 @@
 package nettransfer.control.command;
 
 import nettransfer.control.EvidenceSource;
+import nettransfer.control.IntegrityStatus;
 import nettransfer.control.TransferError;
 import nettransfer.control.TransferMetrics;
 import nettransfer.control.TransferRequest;
 import nettransfer.control.TransferService;
 import nettransfer.control.TransferServiceException;
+import nettransfer.control.TransferSettings;
 import nettransfer.control.TransferSnapshot;
 import nettransfer.control.TransferStart;
 import nettransfer.control.TransferState;
@@ -18,6 +20,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -208,8 +211,95 @@ class CommandDispatcherTest {
         assertEquals("Why this result?", selected.question());
         assertEquals(EvidenceSource.SYNTHETIC, selected.summary().finalSnapshot().evidenceSource());
         assertEquals(1, service.starts.get());
-        assertEquals(0, service.statusReads.get());
+        assertEquals(2, service.statusReads.get());
         assertEquals(4, service.summaryReads.get());
+    }
+
+    @Test
+    void explainRejectsSummaryForAnotherRunBeforeReadingItsTransfer() {
+        UUID requestedRun = UUID.randomUUID();
+        TransferSummary returned = evidence(UUID.randomUUID(), UUID.randomUUID(), null, EvidenceSource.SYNTHETIC);
+        EvidenceService evidenceService = useEvidence(returned, returned.finalSnapshot());
+
+        assertRejected(EVIDENCE_UNAVAILABLE, dispatch(explain(requestedRun)));
+
+        assertEquals(1, evidenceService.summaryReads);
+        assertEquals(0, evidenceService.statusReads);
+    }
+
+    @Test
+    void explainRejectsWrongTransferInTrustedCurrentOrLastSelection() {
+        UUID runId = UUID.randomUUID();
+        TransferSummary returned = evidence(UUID.randomUUID(), runId, null, EvidenceSource.SYNTHETIC);
+        EvidenceService evidenceService = useEvidence(returned, returned.finalSnapshot());
+
+        assertRejected(EVIDENCE_UNAVAILABLE, dispatcher.dispatch(UUID.randomUUID(), explain(null),
+                new CommandDispatcher.Selection(UUID.randomUUID(), runId)));
+
+        assertEquals(1, evidenceService.summaryReads);
+        assertEquals(0, evidenceService.statusReads);
+    }
+
+    @Test
+    void explainAcceptsDistinctRunAndTransferIdsForExplicitAndTrustedSelection() {
+        UUID transferId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        TransferSummary returned = evidence(transferId, runId, UUID.randomUUID(), EvidenceSource.SYNTHETIC);
+        EvidenceService evidenceService = useEvidence(returned, returned.finalSnapshot());
+
+        DispatchResult.SummarySelected explicit = assertInstanceOf(DispatchResult.SummarySelected.class,
+                dispatcher.dispatch(UUID.randomUUID(), explain(runId),
+                        new CommandDispatcher.Selection(UUID.randomUUID(), UUID.randomUUID())));
+        DispatchResult.SummarySelected selected = assertInstanceOf(DispatchResult.SummarySelected.class,
+                dispatcher.dispatch(UUID.randomUUID(), explain(null),
+                        new CommandDispatcher.Selection(transferId, runId)));
+
+        assertSame(returned, explicit.summary());
+        assertSame(returned, selected.summary());
+        assertEquals(runId, evidenceService.lastSummaryId);
+        assertEquals(transferId, evidenceService.lastStatusId);
+        assertEquals(2, evidenceService.summaryReads);
+        assertEquals(2, evidenceService.statusReads);
+    }
+
+    @Test
+    void explainRejectsRegisteredTransferRunSourceOrProtocolIdentityMismatch() {
+        UUID transferId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID protocolId = UUID.randomUUID();
+        TransferSummary returned = evidence(transferId, runId, protocolId, EvidenceSource.SYNTHETIC);
+        List<TransferSnapshot> mismatches = List.of(
+                evidence(UUID.randomUUID(), runId, protocolId, EvidenceSource.SYNTHETIC).finalSnapshot(),
+                evidence(transferId, UUID.randomUUID(), protocolId, EvidenceSource.SYNTHETIC).finalSnapshot(),
+                evidence(transferId, runId, protocolId, EvidenceSource.REAL).finalSnapshot(),
+                evidence(transferId, runId, UUID.randomUUID(), EvidenceSource.SYNTHETIC).finalSnapshot(),
+                evidence(transferId, runId, null, EvidenceSource.SYNTHETIC).finalSnapshot());
+
+        for (TransferSnapshot registered : mismatches) {
+            EvidenceService evidenceService = useEvidence(returned, registered);
+            assertRejected(EVIDENCE_UNAVAILABLE, dispatch(explain(runId)));
+            assertRejected(EVIDENCE_UNAVAILABLE, dispatcher.dispatch(UUID.randomUUID(), explain(null),
+                    new CommandDispatcher.Selection(transferId, runId)));
+            assertEquals(2, evidenceService.statusReads);
+        }
+    }
+
+    @Test
+    void explainRejectsAbsentSummaryOrUnverifiableRegisteredTransfer() {
+        UUID transferId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        TransferSummary returned = evidence(transferId, runId, null, EvidenceSource.SYNTHETIC);
+        EvidenceService evidenceService = useEvidence(null, returned.finalSnapshot());
+        assertRejected(EVIDENCE_UNAVAILABLE, dispatch(explain(runId)));
+        assertEquals(0, evidenceService.statusReads);
+
+        evidenceService = useEvidence(returned, null);
+        assertRejected(EVIDENCE_UNAVAILABLE, dispatch(explain(runId)));
+        assertEquals(1, evidenceService.statusReads);
+
+        evidenceService.statusFailure = new TransferServiceException(UNKNOWN_TRANSFER, "No registered transfer");
+        assertRejected(EVIDENCE_UNAVAILABLE, dispatch(explain(runId)));
+        assertEquals(2, evidenceService.statusReads);
     }
 
     @Test
@@ -287,6 +377,25 @@ class CommandDispatcherTest {
     private void useScenario(FakeTransferService.Scenario scenario) {
         service = new CountingService(new FakeTransferService(scenario));
         dispatcher = new CommandDispatcher(new CommandParser(), new CommandValidator(configuration), service);
+    }
+
+    private EvidenceService useEvidence(TransferSummary summary, TransferSnapshot registered) {
+        EvidenceService evidenceService = new EvidenceService(summary, registered);
+        dispatcher = new CommandDispatcher(new CommandParser(), new CommandValidator(configuration), evidenceService);
+        return evidenceService;
+    }
+
+    private TransferSummary evidence(UUID transferId, UUID runId, UUID protocolId, EvidenceSource sourceType) {
+        TransferRequest request = new TransferRequest(UUID.randomUUID(), transferId, "report", "receiver-a", source,
+                configuration.approvedReceivers().get("receiver-a"), new TransferSettings(1024, 1024, 1, 200, 5));
+        TransferSnapshot snapshot = new TransferSnapshot(transferId, runId, protocolId,
+                TransferState.COMPLETED, Instant.parse("2026-09-20T12:00:00Z"), sourceType, COMPLETE, null);
+        return new TransferSummary(request, snapshot, IntegrityStatus.VERIFIED, "Synthetic identity test fixture");
+    }
+
+    private static CommandProposal.Calls explain(UUID runId) {
+        return call("explain", "{\"run_id\":" + (runId == null ? "null" : "\"" + runId + "\"")
+                + ",\"question\":\"Why this result?\"}");
     }
 
     private TransferStart begin() {
@@ -377,6 +486,44 @@ class CommandDispatcherTest {
         public TransferSummary summary(UUID runId) {
             summaryReads.incrementAndGet();
             return fake.summary(runId);
+        }
+    }
+
+    /** Deliberately independent run and transfer identities exercise a faulty summary provider. */
+    private static final class EvidenceService implements TransferService {
+        private final TransferSummary summary;
+        private final TransferSnapshot registered;
+        private int summaryReads;
+        private int statusReads;
+        private UUID lastSummaryId;
+        private UUID lastStatusId;
+        private TransferServiceException statusFailure;
+
+        private EvidenceService(TransferSummary summary, TransferSnapshot registered) {
+            this.summary = summary;
+            this.registered = registered;
+        }
+
+        @Override
+        public TransferStart start(TransferRequest request) {
+            throw new AssertionError("An explanation must never attempt a transfer start");
+        }
+
+        @Override
+        public TransferSnapshot status(UUID transferId) {
+            statusReads++;
+            lastStatusId = transferId;
+            if (statusFailure != null) {
+                throw statusFailure;
+            }
+            return registered;
+        }
+
+        @Override
+        public TransferSummary summary(UUID runId) {
+            summaryReads++;
+            lastSummaryId = runId;
+            return summary;
         }
     }
 }

@@ -4,6 +4,8 @@ import nettransfer.control.TransferError;
 import nettransfer.control.TransferRequest;
 import nettransfer.control.TransferService;
 import nettransfer.control.TransferServiceException;
+import nettransfer.control.TransferSnapshot;
+import nettransfer.control.TransferSummary;
 
 import java.util.Objects;
 import java.util.Set;
@@ -11,6 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static nettransfer.control.TransferError.Code.INVALID_COMMAND;
+import static nettransfer.control.TransferError.Code.EVIDENCE_UNAVAILABLE;
 import static nettransfer.control.TransferError.Code.REQUEST_ALREADY_DISPATCHED;
 
 /**
@@ -90,13 +93,42 @@ public final class CommandDispatcher {
             if (id == null) {
                 return new DispatchResult.Clarification("No run is selected; select an existing run ID");
             }
-            return new DispatchResult.SummarySelected(service.summary(id), explain.question());
+            TransferSummary summary = service.summary(id);
+            UUID selectedTransfer = explain.runId() == null ? selection.transferId() : null;
+            if (!matchesSelectedIdentity(id, selectedTransfer, summary)) {
+                return rejected(EVIDENCE_UNAVAILABLE, "The selected summary's run/transfer identity could not be verified");
+            }
+            return new DispatchResult.SummarySelected(summary, explain.question());
         } catch (TransferServiceException e) {
             return switch (e.error().code()) {
                 case CLARIFICATION_REQUIRED -> new DispatchResult.Clarification(e.error().message());
                 case UNSUPPORTED_REQUEST -> new DispatchResult.Unsupported(e.error().message());
                 default -> new DispatchResult.Rejected(e.error());
             };
+        }
+    }
+
+    /** Check both explicit and current/last selection without assuming runId equals transferId. */
+    private boolean matchesSelectedIdentity(UUID runId, UUID selectedTransfer, TransferSummary summary) {
+        if (summary == null) {
+            return false;
+        }
+        TransferSnapshot evidence = summary.finalSnapshot();
+        if (!runId.equals(evidence.runId())
+                || (selectedTransfer != null && !selectedTransfer.equals(evidence.transferId()))) {
+            return false;
+        }
+        try {
+            // The service must recognize the returned transfer as the same run and provenance.
+            TransferSnapshot registered = service.status(evidence.transferId());
+            return registered != null
+                    && evidence.transferId().equals(registered.transferId())
+                    && runId.equals(registered.runId())
+                    && evidence.evidenceSource() == registered.evidenceSource()
+                    && Objects.equals(evidence.protocolTransferId(), registered.protocolTransferId());
+        } catch (TransferServiceException exception) {
+            // A summary exists, but its identity cannot be independently confirmed.
+            return false;
         }
     }
 
