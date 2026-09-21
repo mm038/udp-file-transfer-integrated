@@ -10,9 +10,13 @@ import nettransfer.llm.GptException;
 import nettransfer.llm.ResponsesGptClient;
 import nettransfer.llm.ResponsesExplanationClient;
 
+import java.io.Console;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -23,7 +27,11 @@ public final class TransferCliMain {
     private TransferCliMain() { }
 
     public static void main(String[] args) {
-        PrintWriter output = new PrintWriter(System.out, true);
+        // Native consoles know their encoding. A PrintWriter over System.out would instead use
+        // the JVM default, which can differ from the Windows terminal's active code page.
+        Console console = System.console();
+        PrintWriter output = console == null ? redirectedOutput(System.out) : console.writer();
+        Reader input = console == null ? redirectedInput(System.in) : console.reader();
         if (args.length == 0 || (args.length == 1 && args[0].equals("--help"))) {
             usage(output);
             return;
@@ -41,7 +49,7 @@ public final class TransferCliMain {
             Runtime.getRuntime().addShutdownHook(shutdown);
             try {
                 new TransferCli(service, configuration,
-                        new InputStreamReader(System.in, StandardCharsets.UTF_8), output,
+                        input, output,
                         gptFromEnvironment(System.getenv()),
                         new ExplanationFlow(SummaryProvider.unavailable(),
                                 explanationFromEnvironment(System.getenv()))).run();
@@ -57,6 +65,15 @@ public final class TransferCliMain {
                 }
             }
         }
+    }
+
+    /** Without a native Console, both sides use UTF-8; pipe/IDE hosts must use the same encoding. */
+    static Reader redirectedInput(InputStream input) {
+        return new InputStreamReader(input, StandardCharsets.UTF_8);
+    }
+
+    static PrintWriter redirectedOutput(OutputStream output) {
+        return new PrintWriter(output, true, StandardCharsets.UTF_8);
     }
 
     static TransferConfiguration configurationFromArgs(String[] args) {
@@ -107,5 +124,7 @@ public final class TransferCliMain {
         output.println("Receiver ID receiver-a uses 127.0.0.1:9000; start the existing receiver separately.");
         output.println("Natural language uses OPENAI_API_KEY and optional OPENAI_MODEL (default gpt-5-mini).");
         output.println("Optional API deadlines: OPENAI_CONNECT_TIMEOUT_MS and OPENAI_REQUEST_TIMEOUT_MS. Direct commands need no key.");
+        output.println("Native consoles use their own encoding; redirected or IDE input/output uses UTF-8.");
+        output.flush();
     }
 }

@@ -111,6 +111,8 @@ class ResponsesExplanationClientTest {
         assertEquals(0, body.getAsJsonArray("tools").size());
         assertEquals("none", body.get("tool_choice").getAsString());
         assertTrue(body.get("instructions").getAsString().contains(ExplanationRequest.INSTRUCTIONS));
+        assertTrue(body.get("instructions").getAsString().contains("ACK arrivals are not unique acknowledged payload"));
+        assertTrue(body.get("instructions").getAsString().contains("sender protocol success separate from receiver integrity"));
         assertFalse(body.get("instructions").getAsString().contains(question));
         assertFalse(captured.body().contains(KEY));
         assertFalse(captured.body().contains("synthetic-input-not-created.bin"));

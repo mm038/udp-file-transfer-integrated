@@ -331,7 +331,8 @@ public final class TransferCli {
                 Use ask to interpret a sentence beginning with a reserved direct command such as status.
                 A direct command clears pending clarification context. Model text never acknowledges execution.
                 Explain checks a selected frozen outcome, then requires a matching recorded summary.
-                Real recorded measurements are unavailable pending Person 2; synthetic analysis requires explicit test injection.
+                Real recorded measurements await producer records and shared engine observation/identity integration.
+                Synthetic analysis requires explicit evaluation/test injection; it never supplies real measurements.
                 Exit is refused while a transfer is active. EOF/process shutdown interrupts active work.
                 Start a receiver separately before each transfer; this console does not start one.
                 """);

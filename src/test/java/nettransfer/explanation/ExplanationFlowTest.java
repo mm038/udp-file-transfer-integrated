@@ -115,6 +115,8 @@ class ExplanationFlowTest {
 
         assertEquals(EVIDENCE_UNAVAILABLE, result.status());
         assertTrue(result.message().contains("Person 2"));
+        assertTrue(result.message().contains("accepted the complete revised field set"));
+        assertTrue(result.message().contains("shared engine observation/identity integration"));
         assertNull(result.evidence());
         assertNull(result.draft());
         assertEquals(0, calls.get());

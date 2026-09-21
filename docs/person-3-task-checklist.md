@@ -1,28 +1,30 @@
 # Person 3 implementation checklist
 
-Updated September 20, 2026 on branch `person-3/llm-integration`. Engine baseline: `15a3fc36643a70b54c2fc767038ff4cc547cf31b` (Stage 10.5); milestones 2-4 were committed as `1571613`, milestone 5 as `d9cc443`, and the original independent milestone 6 boundary as `ab3c4c0`. Milestone 7's independent offline regression scope is now complete: **566 tests across 30 classes**, zero failures/errors/skips, and a successful JAR build. See the [milestone 7 audit and walkthrough](person-3-milestone-7.md). The pre-existing uncommitted milestone 6 HTTP implementation was preserved. The user has confirmed Person 2's agreement to the complete [revised metric set](Metrics_Summary_Revised.md), including supporting fields; actual metrics/logs and concrete event/storage/identity integration remain unavailable. Earlier real transfer/hash evidence remains under milestones 1 and 4. Stop for review before milestone 8. No live API calls, commits or pushes were performed.
+Updated September 21, 2026 on `feature/LLM-integration`, tracking origin. The old local `person-3/llm-integration` branch was deleted; older branch/commit/test descriptions below are historical checkpoints. Milestone 6 HTTP work is committed, and milestone 7 is committed as `f1be0c8` with a recorded **566 tests across 30 classes**, zero failures/errors/skips and successful JAR packaging. The user has now run milestone 8's small `smoke` and `explanations` batches, and their saved outputs were reviewed with outstanding findings. **Milestone 8 remains incomplete:** explanation corrections/retests and broader command coverage are pending. The [repository and milestone handoff](repository-and-milestone-handoff.md) records the portable findings and exact artifact locations; the [walkthrough](person-3-milestone-8.md) provides evaluation details. The September 20 console observations remain separate history. Preserve earlier artifacts and stop for review before milestone 9. No automatic staging, commit or push is authorized.
+
+Person 2's complete [revised metric set](Metrics_Summary_Revised.md) is accepted. The user reports that her metrics/logging implementation is complete on her own branch and has delegated the merge and connection of real logs to this interface to her. Her branch and outputs have not been inspected or merged here. Pending integration items below mean work still to verify in the combined implementation, not a claim that her branch lacks it.
 
 Work through the milestones in order; add tests alongside each component rather than postponing them until milestone 7. The engine now exists, so connect a real adapter before GPT. Keep the simulated service for deterministic tests and cases the real engine cannot yet expose.
 
-Use [Person 3 handoff and design note](./person-3-handoff.md) for the proposed contract, recommended choices, ownership, and assumptions to discuss with teammates. If the team changes that contract, update this checklist and its examples to match.
+Use the [repository and milestone handoff](repository-and-milestone-handoff.md) and [Person 2 integration note](person-2-integration-note.md) for the current structure, ownership, evidence and integration requirements. If the team changes the contract, update this checklist and its examples to match.
 
 The assignment outcomes are natural-language control, live status, evidence-based explanations, deterministic Java validation, and a working integrated demonstration. The named classes, fake services, test structure, and implementation sequence below are our recommended way to deliver those outcomes, rather than additional assignment requirements. Person 1 owns the UDP engine; Person 2 owns networking experiments and their measured results.
 
 ## 1. Preserve the working baseline and agree the team contract
 
 - [x] Establish working Java 17 and standalone Maven 3.9.16 for this workspace.
-- [x] Pull and identify the stage 10.5 baseline on `person-3/llm-integration` at the commit above.
+- [x] Pull and identify the historical Stage 10.5 baseline on `person-3/llm-integration` at `15a3fc36643a70b54c2fc767038ff4cc547cf31b`.
 - [x] Establish the baseline build: the supplied `mvn clean verify` output reports 78 tests across 13 classes, zero failures/errors, and a built JAR.
 - [x] Verify one manual sender/receiver transfer: both CLI processes reported `SUCCESS`; input/output are each 5,405 bytes and the supplied SHA-256 values match.
 - [ ] Optionally add a pinned project Maven Wrapper during implementation setup; standalone Maven already works, so this is a reproducibility improvement rather than a prerequisite.
-- [ ] Share the brief teammate note in section 9 of the [handoff](person-3-handoff.md), then record their feedback on the proposed hooks, IDs, lifecycle, settings, metrics, and ownership.
-- [ ] Agree a backward-compatible engine overload accepting a caller-supplied UUID and an optional/no-op observer, preserving existing engine callers.
+- [ ] Share the [integration note](person-2-integration-note.md) and [repository handoff](repository-and-milestone-handoff.md), then record feedback on observations, IDs, lifecycle, settings, metrics and ownership. Preparing these notes does not claim they were sent.
+- [ ] Coordinate actual engine observations and a verified application/wire UUID association with Persons 1 and 2. Supplying or exposing the wire UUID are integration options; a particular overload/observer API is not a requirement. Person 2 may add instrumentation alongside Stage 11.
 - [ ] Coordinate bounded control-handshake recovery, peer/transfer-ID validation, and receiver output protection with Person 1 before impaired integrated tests.
 - [x] Record the user's confirmation that Person 2 agrees to the complete revised metric set, including supporting measurement, configuration and metadata fields.
 - [ ] Finalize the implementable event/storage/identity contract around the accepted metric set (concrete serialization, event records, ID association, hooks and record finalization). Person 2 retains ownership of measurement/logging; field-scope agreement alone does not provide those implementations.
 - [x] Record and analyze Person 2's proposed fields from `Metrics_Summary.docx`; preserve the distinction between her proposal, illustrative JSON and real measured outputs. See the [review and open decisions](person-2-metrics-review.md).
 - [x] Prepare a [revised summary](Metrics_Summary_Revised.md) and [Word copy](Metrics_Summary_Revised.docx), separating assignment requirements from design choices and correcting the illustrative packet-count example. The user subsequently confirmed Person 2's agreement to the complete set; milestone 7 now covers its independent synthetic compatibility checks.
-- [ ] Confirm the approved OpenAI API route and arrange credentials for later live tests; keep offline development independent of credentials.
+- [x] Record user-reported working OpenAI API access and credit from September 20. Credentials remain outside source/artifacts; ordinary offline tests require none. This smoke report does not establish formal milestone 8 results.
 
 The matching baseline SHA-256 is `50AEF3550D0C6311A8A1F616CFAE1E5DB2ADFF5CE78B44F833F822139DD1A93F`. This proves the recorded happy-path transfer and test run, not fault recovery or later Person 3 integration. The existing receiver handles one transfer per process; restart it for each manual run and use fresh output paths until Person 1 confirms no-overwrite behavior.
 
@@ -32,7 +34,7 @@ The matching baseline SHA-256 is `50AEF3550D0C6311A8A1F616CFAE1E5DB2ADFF5CE78B44
 
 - [x] Define shared request, start acknowledgement, status snapshot, final result, and error types around the existing engine contract and the handoff.
 - [x] Define the `TransferService` operations for starting a transfer, reading status, and retrieving a result.
-- [x] Make start return Java-generated application `transfer_id`/`run_id` values promptly; keep `protocol_transfer_id` null until the agreed caller-UUID overload provides a verified mapping.
+- [x] Make start return Java-generated application `transfer_id`/`run_id` values promptly; keep `protocol_transfer_id` null until supplying or exposing engine identity provides a verified mapping.
 - [x] Define timestamp/unit conventions and nullable unavailable metrics; map engine result counter sentinels of `-1` to unavailable, never to zero.
 - [x] Implement `FakeTransferService` with explicitly advanced progress states and predefined success/failure results.
 - [x] Label fake snapshots/fixtures as synthetic, including missing-metric cases; never use fake progress to fill gaps in real status.
@@ -151,7 +153,7 @@ Implemented files and choices:
 1. `src/main/java/nettransfer/llm/`: `GptClient`, immutable `InterpretationRequest`, scripted `StubGptClient`, `GptSettings`, typed `GptException`, and `ResponsesGptClient` with `ResponsesJson`/`ResponsesBodySubscriber` helpers. No service/engine access exists inside the GPT client.
 2. `TransferCli`: natural-language input and `ask <sentence>` use the injected interpreter, then the existing dispatcher. Up to two clarification exchanges share a Java request ID; a direct command, executed/rejected request or API failure clears the context. GPT text is explicitly labelled as non-execution.
 3. `TransferCliMain`: environment configuration for key/model/API deadlines, with missing/invalid GPT configuration leaving direct commands available. HTTP retries happen before dispatch and preserve the logical request ID.
-4. [Milestone 5 walkthrough](person-3-milestone-5.md), [README](../README.md), and [handoff](person-3-handoff.md): file map, example flow, setup and practical limits. The model/API format choices were checked against official OpenAI documentation.
+4. [Milestone 5 walkthrough](person-3-milestone-5.md), [README](../README.md), and [current repository handoff](repository-and-milestone-handoff.md): file map, example flow, setup and practical limits. The model/API format choices were checked against official OpenAI documentation.
 
 The default API request can occupy the console for about 60.1 seconds across two attempts; the separate UDP worker keeps running. API deadlines are configurable and separate from UDP settings. `explain` still selects a frozen outcome/question only. Person 1's engine, the shared service/command contracts, deterministic validator/dispatcher, wire protocol, existing entry point and dependencies are unchanged. Person 2's metrics/logging and proposed engine hooks remain pending.
 
@@ -184,7 +186,7 @@ The first full run found a regression in CLI explanatory wording and the known s
 
 The new client explicitly projects frozen evidence into a strict structured-output request with no tools; `ResponsesTransport` reuses the established retry/deadline/body-limit/credential safeguards. The launcher installs the client with an unavailable provider; the existing REAL gate still returns `EVIDENCE_UNAVAILABLE` before HTTP. Exact decimal/null preservation, input/output identity, unsupported citations, HTTP failures and evidence retention are covered. At that checkpoint the accepted field-set audit remained milestone 7 work; the subsequent synthetic audit is recorded below. Live prose quality remains unverified. See the [follow-up walkthrough](person-3-milestone-6-http.md).
 
-**Historical milestone 6 review stop:** only its independent work was completed at that checkpoint. Person 1's identity/observer extensions and Person 2's metrics/logging remain pending. The subsequently authorized milestone 7 work is recorded below; milestone 8 remains unstarted.
+**Historical milestone 6 review stop:** only its independent work was completed at that checkpoint. Shared engine observation/identity integration and Person 2's metrics/logging remain pending. The subsequently authorized milestone 7 and milestone 8 work are recorded below.
 
 ## 7. Complete the offline regression suite
 
@@ -212,29 +214,41 @@ mvn -o verify
 
 The first full sandbox run had only the known Windows temporary-file ACL error; the approved rerun outside the sandbox passed all checks. Tests used scripted fixtures and loopback HTTP/UDP, with no live calls or new experiments. `clean` was avoided to preserve earlier hash evidence. The generated POM remains excluded. Existing uncommitted production code, engine/adapter and `.gitignore` were preserved.
 
-**Remaining dependencies:** producer logs and finalized summaries; concrete serialization/types/null encoding, events and finalization rules; verified experiment/application/wire association and endpoint attribution; actual metadata/outcome reconciliation and semantic consistency checks; Person 1's observation/identity hooks. These are not implemented by the test metadata or synthetic fixtures. Person 2's complete accepted field scope is not reopened.
+**Remaining dependencies:** producer logs and finalized summaries; concrete serialization/types/null encoding, events and finalization rules; verified experiment/application/wire association and endpoint attribution; actual metadata/outcome reconciliation and semantic consistency checks; shared engine/metrics observation and identity integration coordinated with Person 1, potentially instrumented by Person 2 during Stage 11. These are not implemented by test metadata or synthetic fixtures. Person 2's complete accepted field scope is not reopened.
 
-**Review stop:** independent milestone 7 is complete. Milestone 8 has not started, no live model quality is established, and real explanations still return `EVIDENCE_UNAVAILABLE` before provider/client calls. These checks establish interface regression behavior, not whole-engine correctness or measured network performance. No commit or push was performed; explicit local commit guidance, including the existing milestone 6 prerequisite, is in the [walkthrough](person-3-milestone-7.md#commit-locally-after-review).
+**Historical milestone 7 review stop:** its independent offline scope is complete. Milestone 6 HTTP and milestone 7 were subsequently committed; the old milestone 7 staging instructions describe that earlier working tree. Current milestone 8 work is below. Real explanations still return `EVIDENCE_UNAVAILABLE` before provider/client calls. Offline checks establish interface regression behavior, not live model quality, whole-engine correctness or measured network performance.
 
 ## 8. Evaluate live GPT before the full impaired demo
 
-Agreement on the metric set does not supply measured evidence. Live model evaluation can use explicitly synthetic summaries without Person 2's logs; the separate analysis HTTP adapter is now implemented and tested offline. Working API access and an explicitly enabled live evaluation path remain pending. This does not complete real measured explanation acceptance.
+**Infrastructure implemented; small live batches run and reviewed with findings on September 21. Milestone 8 remains incomplete.** The separate Java main and [PowerShell launcher](../scripts/milestone-8-eval.ps1) default to preview. Live execution requires `-Live` and an explicit `-MaxCalls`; an API key alone cannot enable it. The initial model remains `gpt-5-mini`, configurable through `OPENAI_MODEL`. Read the [audit, expectations and review guide](person-3-milestone-8.md) and [handoff results/artifact locations](repository-and-milestone-handoff.md). This work does not complete real measured explanation acceptance.
 
-- [ ] Add an explicitly enabled live-test path that is excluded from the normal offline test run.
-- [ ] Create a small prompt set covering clear starts, paraphrases, units, omissions, ambiguous references, status, unsupported operations, and explanation questions.
-- [ ] Run the prompt set with the configurable recommended model and record model ID, test date, prompts, proposed commands, and Java decisions without secrets.
-- [ ] Evaluate command/argument correctness and whether clarification was appropriate rather than comparing exact response wording.
-- [ ] Check explanations against known fixture measurements for unsupported numbers or causal claims; record failures and adjust prompts/schemas as needed.
-- [ ] Include agreed producer field names/units and questions that distinguish configured loss from observed drops, ACK arrivals from delivered bytes, and protocol success from verified integrity; label all fixture results synthetic.
-- [ ] Demonstrate natural-language start with the real adapter, basic observable status, fixture-grounded explanation in clearly labelled test mode, and deterministic Java rejection.
+- [x] Audit and reuse the existing validator, services, HTTP clients, evidence gate, synthetic accepted-metric fixtures and offline coverage.
+- [x] Add an explicitly enabled live path excluded from normal offline tests, with bounded calls/output and one HTTP attempt per request.
+- [x] Define prompts and semantic expectations covering starts, paraphrases, units, optional/essential omissions, current/last ambiguity, status, unsupported operations and explanation questions.
+- [x] Implement capture of configured/returned model, UTC date, prompts, proposals, Java decisions, expectations, actual results, failures and available token usage. API latency is separate from transfer timing; credentials are excluded.
+- [x] Include accepted metric names/units and explicitly SYNTHETIC cases distinguishing configured loss from observed drops, ACK arrivals from delivered bytes, missing metrics, and protocol success from verified integrity.
+- [x] Provide the bounded smoke batch and independent deterministic Java rejection demonstration; keep real demo outputs and synthetic explanations separately labelled.
+- [x] Tighten optional-default, unsupported-operation and explanation instructions; fix native-console versus redirected UTF-8 handling separately from model-quality evaluation.
+- [x] Run focused offline checks: runner 13 passing tests, telemetry/client 149 passing tests, prompt/console/explanation 180 passing tests. These selections overlap; they are not an additive suite total.
+- [x] Complete approved `mvn -o verify`: **603 tests across 32 classes**, zero failures/errors/skips, and successful JAR packaging. The initial sandbox run's only error was the known existing Windows file-ACL restriction; the approved rerun passed. No `clean` or paid calls were used.
+- [x] Run and review the formal small live evaluation with `gpt-5-mini`; preserve actual failures and token/latency records without secrets. The smoke run attempted five calls: four completed and one timed out; its last case did not run. The follow-up explanations batch completed all four calls. Eight completed responses report `gpt-5-mini-2025-08-07`.
+- [x] Review the four smoke command cases for commands/arguments, clarification and Java decisions. Real start/status, missing essentials and unsupported deletion passed their recorded boundaries, with minor wording issues retained. Wider command coverage is still pending.
+- [x] Review all four follow-up SYNTHETIC explanation answers and record unsupported causal claims and field-meaning errors. All passed automatic reference checks, but none received an unconditional manual PASS. Missing values and numeric references were preserved; prose corrections remain necessary.
+- [x] Review recorded real natural-language start/basic status, synthetic explanation responses and deterministic Java rejection. The real 36-byte transfer completed with verified matching SHA-256; rejection started no transfer. Reviewing explanation responses does not approve their prose. The September 20 user-reported smoke remains separate history.
+- [ ] Apply justified explanation/prompt corrections, run relevant offline checks and deliberately retest the affected explanations. The current runner selects fixed batches; the four-call `explanations` batch is the available focused follow-up.
+- [ ] Complete remaining prompt categories in deliberate follow-up batches before marking milestone 8 complete. Do not interpret automatic semantic pass results as prose review.
 
-**Done when:** live GPT behavior has been reviewed against explicit expectations, and every demonstration using fake data is labelled synthetic.
+**Pending work through milestone 8:** explanation corrections/retests and broader command coverage can proceed independently of real-log integration. Real detailed status and measured explanations still require verification of shared observations, finalized summaries/events, concrete serialization/lifecycle/endpoint semantics and experiment/application/wire identity in the combined implementation. Person 2 is taking over the merge, real-provider connection and semantic/outcome reconciliation using her reported completed work; those changes have not been inspected or merged here. Person 1's Stage 1-10.5 engine is complete; instrumentation/identity is shared integration work. No teammate is contacted automatically.
+
+**Artifact preservation:** no `clean` is run. The Maven Shade option `createDependencyReducedPom=false` prevents packaging from rewriting the pre-existing untracked generated POM. Preview now prints the full prompts/expectations and makes no API call. Rejected explanation drafts remain explicitly untrusted review records beside Java's rejection and the original evidence.
+
+**Done when:** actual live GPT outputs have been reviewed against explicit expectations, failures and limitations are recorded, and every synthetic demonstration is labelled. Offline success alone is insufficient. Stop for review before milestone 9.
 
 ## 9. Complete observer, metrics, and fault-scenario integration
 
 - [ ] Implement against the concrete producer handoff: verified `experiment_id`/application/wire association, schema/definition versions, timing/outcome/counter semantics and finalized serialized records. Use the accepted metric set; resolve remaining technical details rather than requesting field-scope approval again.
 - [ ] Verify that actual producer summaries and linked logs supply the accepted assignment evidence (including delivered bytes, acknowledged/timeout/duplicate counts, ratios, overhead, event logs and applicable RTT statistics); record which artifact provides each item.
-- [ ] Adopt Person 1's backward-compatible caller-UUID/observer hooks and verify ID mapping across the adapter, engine events, and Person 2's summaries.
+- [ ] Adopt the shared engine observation/identity integration and verify associations across the adapter, wire transfer, engine events and Person 2's summaries; supplying or exposing identity are both options.
 - [ ] Connect real observer snapshots and Person 2's saved summaries; expose detailed states/progress only when supported by actual observations.
 - [ ] Preserve supplied seconds/Mbps values and configured/observed meanings; reconcile success and nullable integrity with the selected engine outcome. Retain missing evidence and reject incorrect identity associations. Do not substitute DATA/ACK counts for unique progress.
 - [ ] With Person 1, verify bounded START/FINISH recovery, peer/transfer-ID checks, receiver no-overwrite behavior, and receiver restart expectations for the selected scenarios.

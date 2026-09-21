@@ -282,7 +282,8 @@ class TransferCliExplanationTest {
 
         assertTrue(text.contains("[REAL] COMPLETED"), text);
         assertTrue(text.contains("EVIDENCE_UNAVAILABLE: Real recorded measurements are unavailable"));
-        assertTrue(text.contains("Person 2's summaries and the agreed identity/metric contract are pending"));
+        assertTrue(text.contains("Person 2 accepted the complete revised field set"));
+        assertTrue(text.contains("producer records/serialization and shared engine observation/identity integration are pending"));
         assertTrue(text.contains("No GPT explanation is generated"));
         assertFalse(text.contains("Evidence [SYNTHETIC]"));
         assertFalse(text.contains("duration_ms=1000"));

@@ -1,5 +1,7 @@
 # Metrics Summary - Revised Set and Integration Notes
 
+**Current status, September 21:** the complete metric/supporting-field set is accepted. Independent milestone 7 synthetic checks are complete and committed; [milestone 8](person-3-milestone-8.md) adds explicit live-evaluation infrastructure, with formal live review pending. References below to paused milestone 7 describe this document's original revision. Actual producer files and shared engine/metrics observation/identity integration remain pending; Person 2 may instrument engine event points alongside Stage 11, coordinated with Person 1.
+
 Prepared September 20, 2026 from Person 2's `Metrics_Summary.docx` and the assignment PDF (minimum metrics on pages 2-3). The user has confirmed that Person 2 agrees to the complete metric set, including the supporting fields below. Use this accepted scope for future implementation. Definitions marked proposed and open integration notes distinguish design choices from instructor requirements and identify details to settle in the concrete producer handoff; they do not reopen field-scope approval. Person 2 owns measurement and logging, which have not yet been supplied. No milestone 7 implementation is started by this document.
 
 ## 1. What needs to be added

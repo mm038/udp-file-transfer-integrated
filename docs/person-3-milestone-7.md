@@ -1,5 +1,7 @@
 # Milestone 7: independent offline regression suite
 
+**Current status, September 21:** milestone 6 HTTP work is committed, and milestone 7 is committed as `f1be0c8` on `feature/LLM-integration`, tracking origin. The old local branch was deleted. Working-tree observations and prerequisite staging commands below describe the historical checkpoint. [Milestone 8](person-3-milestone-8.md) now implements explicit live-evaluation infrastructure; actual formal paid outputs still need to be run and reviewed. Observation/identity integration is shared engine/metrics work coordinated with Person 1; Person 2 may instrument Stage 11. Stop for review before milestone 9.
+
 Verified September 20, 2026 on `person-3/llm-integration`: **566 tests across 30 classes**, zero failures/errors/skips, and a successful JAR build with `mvn -o verify`. This adds 68 checks to the existing 498. Milestone 7's independent offline scope is complete. Stop for review before milestone 8; no live OpenAI call, commit or push was performed.
 
 ## Audit before editing

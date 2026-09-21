@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /** Tool-free analysis HTTP adapter. Returned drafts still require ExplanationFlow's evidence checks. */
 public final class ResponsesExplanationClient implements ExplanationClient {
@@ -27,10 +28,21 @@ public final class ResponsesExplanationClient implements ExplanationClient {
         this(apiKey, settings, ResponsesTransport.ENDPOINT);
     }
 
+    /** Optional safe API metadata for deliberate evaluations; never contains evidence or credentials. */
+    public ResponsesExplanationClient(String apiKey, GptSettings settings,
+                                      Consumer<ApiCallObservation> observer) {
+        this(apiKey, settings, ResponsesTransport.ENDPOINT, observer);
+    }
+
     /** Package-private loopback seam for offline HTTP tests. */
     ResponsesExplanationClient(String apiKey, GptSettings settings, URI endpoint) {
+        this(apiKey, settings, endpoint, observation -> { });
+    }
+
+    ResponsesExplanationClient(String apiKey, GptSettings settings, URI endpoint,
+                               Consumer<ApiCallObservation> observer) {
         this.settings = Objects.requireNonNull(settings, "settings");
-        this.transport = new ResponsesTransport(apiKey, settings, endpoint);
+        this.transport = new ResponsesTransport(apiKey, settings, endpoint, observer);
     }
 
     public static ResponsesExplanationClient fromEnvironment(Map<String, String> environment) {
@@ -41,7 +53,7 @@ public final class ResponsesExplanationClient implements ExplanationClient {
     @Override
     public ExplanationDraft explain(ExplanationRequest request) {
         Objects.requireNonNull(request, "request");
-        return decode(transport.post(payload(request), request.requestId()));
+        return transport.post(payload(request), request.requestId(), this::decode);
     }
 
     private JsonObject payload(ExplanationRequest request) {

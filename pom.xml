@@ -62,6 +62,8 @@
             <phase>package</phase>
             <goals><goal>shade</goal></goals>
             <configuration>
+              <!-- Keep packaging from rewriting the user's existing untracked generated POM. -->
+              <createDependencyReducedPom>false</createDependencyReducedPom>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>nettransfer.Main</mainClass>

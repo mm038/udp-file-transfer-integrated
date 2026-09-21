@@ -1,5 +1,7 @@
 # Milestone 6 follow-up: separate explanation HTTP adapter
 
+**Current status, September 21:** this HTTP implementation and subsequent milestone 7 are committed on `feature/LLM-integration`. The checkpoint/test/commit instructions below are historical. [Milestone 8](person-3-milestone-8.md) adds opt-in live evaluation and advances the analysis prompt to `explanations-v3`; formal live results still require review. Shared engine/metrics observations and identity plus real producer output remain pending. Stop before milestone 9.
+
 This completes the remaining independent Person 3 component of milestone 6: sending an already selected evidence snapshot for analysis, and decoding the reply without giving it command authority. All verification uses authored **SYNTHETIC** evidence and a loopback HTTP server. No live OpenAI calls or new real experiment results are claimed. Milestone 7 has not started.
 
 Person 2 has agreed to the complete [revised metric and supporting field set](Metrics_Summary_Revised.md). That agreement is preserved. Her actual saved summaries/logs and the concrete serialization, event, finalization and identity association contract are still pending. This HTTP adapter consumes the existing Person 3 analysis envelope; it is not a parser for her future files or an implementation of her metrics.

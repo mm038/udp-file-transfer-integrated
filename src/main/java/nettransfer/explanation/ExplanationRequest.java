@@ -9,7 +9,7 @@ import java.util.UUID;
 /** Frozen, bounded analysis data; contains no tools, service, paths, addresses or file contents. */
 public record ExplanationRequest(UUID requestId, String question, RecordedSummary evidence,
                                  TransferState state, IntegrityStatus integrity) {
-    public static final String PROMPT_VERSION = "explanations-v2";
+    public static final String PROMPT_VERSION = "explanations-v3";
     public static final String INSTRUCTIONS = """
             Explain only the supplied frozen evidence for the selected run and transfer.
             SYNTHETIC evidence is a test fixture, never a real experiment. Its field definitions are local
@@ -20,6 +20,11 @@ public record ExplanationRequest(UUID requestId, String question, RecordedSummar
             Acknowledge every missing field and its reason. State when evidence cannot answer the question.
             Keep configured impairment separate from observed drops. Retransmissions do not measure packet
             loss percentage; timeouts do not prove congestion. One run cannot establish a faster setting.
+            ACK arrivals are not unique acknowledged payload or receiver-delivered bytes. Do not infer
+            delivery or throughput from ACK arrival counts, which can include duplicates or stale ACKs.
+            Keep sender protocol success separate from receiver integrity verification. COMPLETED alone
+            does not establish VERIFIED integrity; receiver verification alone does not confirm sender
+            protocol success. Preserve the supplied state, integrity and supporting outcome fields.
             Put possible causes only in hypotheses and state the additional evidence needed to test them.
             Return observations, hypotheses and limitations, with the exact selected run and transfer IDs.
             Use at most 8 observations, each with 1-8 references; at most 4 hypotheses; and 1-8 limitations.

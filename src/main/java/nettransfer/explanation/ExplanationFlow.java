@@ -18,7 +18,7 @@ public final class ExplanationFlow {
         this.client = Objects.requireNonNull(client, "client");
     }
 
-    /** Production default while measured summaries and their contract are pending. */
+    /** Production default while producer records and measured evidence integration are pending. */
     public static ExplanationFlow unavailable() {
         return new ExplanationFlow(SummaryProvider.unavailable(), request -> {
             throw new IllegalStateException("No explanation client configured");
@@ -36,11 +36,13 @@ public final class ExplanationFlow {
     public Result explain(TransferSummary selected, String question) {
         Objects.requireNonNull(selected, "selected");
         var snapshot = selected.finalSnapshot();
-        // No real schema/identity mapping has been agreed. This explicit gate also blocks injected fixtures
-        // with coincidentally matching real IDs. A later integration must deliberately replace this gate.
+        // The complete revised field set is accepted, but producer records/serialization and verified
+        // application/wire identity mapping are not integrated. Also block fixtures with matching real IDs.
+        // Shared producer/engine integration must deliberately replace this gate.
         if (snapshot.evidenceSource() == EvidenceSource.REAL) {
             return result(Status.EVIDENCE_UNAVAILABLE,
-                    "Real recorded measurements are unavailable; Person 2's summaries and the agreed identity/metric contract are pending.", null);
+                    "Real recorded measurements are unavailable. Person 2 accepted the complete revised field set;"
+                            + " producer records/serialization and shared engine observation/identity integration are pending.", null);
         }
         RecordedSummary evidence;
         try {

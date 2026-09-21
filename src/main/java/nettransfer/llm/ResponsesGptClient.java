@@ -14,10 +14,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /** Translates a Responses API result into an untrusted proposal; it cannot call the transfer engine. */
 public final class ResponsesGptClient implements GptClient {
-    public static final String PROMPT_SCHEMA_VERSION = "commands-v1";
+    public static final String PROMPT_SCHEMA_VERSION = "commands-v2";
     private static final Gson JSON = new GsonBuilder().serializeNulls().create();
     private static final String INSTRUCTIONS = """
             You interpret commands for a Java UDP file-transfer console. Propose zero or one of the supplied
@@ -29,9 +30,15 @@ public final class ResponsesGptClient implements GptClient {
             Use only the approved IDs. Do not guess a required file or receiver when the user has not
             identified it, even if the catalogue contains only one choice. Ask a brief clarification instead.
             Use the bounded clarification history to understand a reply; do not repeat a prior command.
-            Unsupported operations require a brief supported-usage response without a tool call.
-            Leave unspecified window_bytes and timeout_ms explicitly null for Java defaults. Do not invent
-            unsupported settings or silently drop requested settings. Ask for clarification for ambiguity.
+            The supported operations are start_transfer, status, and explain only. Unsupported operations
+            require a brief supported-usage response without a tool call. Do not provide shell or OS advice,
+            deletion instructions, or suggest cancellation: this console cannot cancel or delete anything.
+            Leave unspecified window_bytes and timeout_ms explicitly null for Java defaults. These settings
+            are optional: never ask for them or confirmation of defaults when file and receiver are clear.
+            For example, "Send report to receiver-a" proposes a start with both settings null immediately.
+            Do not invent unsupported settings or silently drop requested settings. Ask for clarification
+            for ambiguity. Preserve explicit invalid integer settings for Java to reject; never repair,
+            replace with defaults, or ask permission solely because a requested value is out of range.
             Preserve explicit units: KB means 1000 bytes, KiB means 1024 bytes, MB means 1000000 bytes,
             MiB means 1048576 bytes, and one second is 1000 ms.
             Convert to integer bytes or milliseconds exactly. Ask when units are ambiguous or unknown,
@@ -40,6 +47,7 @@ public final class ResponsesGptClient implements GptClient {
             Use the supplied last ID when the user explicitly requests the last run; ask if none exists.
             When the user explicitly requests the current or active transfer, use its supplied ID. If none
             is active, clarify instead of substituting the last transfer or using a null ID.
+            If the wording offers conflicting selections, such as "current or last", clarify which one.
             An explain tool only selects an existing summary and the user's question. Do not write an
             explanation or invent metrics, logs, progress, timing, throughput, integrity, or wire IDs.
             If the user requests more than one operation, ask them to choose one before proposing a tool.
@@ -52,10 +60,20 @@ public final class ResponsesGptClient implements GptClient {
         this(apiKey, settings, ResponsesTransport.ENDPOINT);
     }
 
+    /** Optional safe API metadata for deliberate evaluations; never contains prompts or credentials. */
+    public ResponsesGptClient(String apiKey, GptSettings settings, Consumer<ApiCallObservation> observer) {
+        this(apiKey, settings, ResponsesTransport.ENDPOINT, observer);
+    }
+
     /** A loopback-only endpoint seam permits offline HTTP tests without exposing endpoint selection to GPT. */
     ResponsesGptClient(String apiKey, GptSettings settings, URI endpoint) {
+        this(apiKey, settings, endpoint, observation -> { });
+    }
+
+    ResponsesGptClient(String apiKey, GptSettings settings, URI endpoint,
+                       Consumer<ApiCallObservation> observer) {
         this.settings = Objects.requireNonNull(settings, "settings");
-        this.transport = new ResponsesTransport(apiKey, settings, endpoint);
+        this.transport = new ResponsesTransport(apiKey, settings, endpoint, observer);
     }
 
     public static ResponsesGptClient fromEnvironment(Map<String, String> environment) {
@@ -66,7 +84,7 @@ public final class ResponsesGptClient implements GptClient {
     @Override
     public CommandProposal interpret(InterpretationRequest interpretation) {
         Objects.requireNonNull(interpretation, "interpretation");
-        return decode(transport.post(payload(interpretation), interpretation.requestId()));
+        return transport.post(payload(interpretation), interpretation.requestId(), this::decode);
     }
 
     private JsonObject payload(InterpretationRequest request) {

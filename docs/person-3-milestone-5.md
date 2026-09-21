@@ -1,5 +1,7 @@
 # Milestone 5: GPT command interpretation
 
+**Current status, September 21:** this is the historical milestone 5 checkpoint. Subsequent explanation HTTP work and milestone 7 are committed on `feature/LLM-integration`. [Milestone 8](person-3-milestone-8.md) adds explicit live-evaluation infrastructure and updates command instructions to `commands-v2`; formal live outputs still need to be run and reviewed. The user's September 20 smoke observations are recorded separately there. Stop before milestone 9.
+
 This step adds interpretation in front of the milestone 3 validator and milestone 4 CLI. It does not change the UDP engine or implement Person 2's measurements/logging. Generated, evidence-grounded explanations remain milestone 6 work. Live model quality evaluation remains milestone 8 work.
 
 ## Follow one request

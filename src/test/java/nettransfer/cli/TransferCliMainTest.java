@@ -7,6 +7,10 @@ import nettransfer.llm.InterpretationRequest;
 import nettransfer.explanation.ExplanationRequest;
 import nettransfer.explanation.SyntheticExplanationFixtures;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +20,21 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TransferCliMainTest {
     @TempDir Path root;
+
+    @Test
+    void redirectedConsolePreservesUnicodeInputAndOutputAsUtf8() throws Exception {
+        String punctuation = "Quoted \u2018report\u2019 \u2014 ready\u2026";
+        var bytes = new ByteArrayOutputStream();
+        var output = TransferCliMain.redirectedOutput(bytes);
+        output.println(punctuation);
+        assertArrayEquals((punctuation + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
+                bytes.toByteArray());
+
+        var input = new BufferedReader(TransferCliMain.redirectedInput(
+                new ByteArrayInputStream(bytes.toByteArray())));
+        assertEquals(punctuation, input.readLine());
+        assertNull(input.readLine());
+    }
 
     @Test
     void missingCredentialsAreReportedOnlyWhenNaturalLanguageIsUsed() {

@@ -3,7 +3,7 @@ package nettransfer.explanation;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Read-only boundary. Future real persistence adapters require Person 2's agreed contract. */
+/** Read-only boundary. Real adapters require implemented producer serialization and verified identity mapping. */
 @FunctionalInterface
 public interface SummaryProvider {
     Optional<RecordedSummary> load(UUID runId);

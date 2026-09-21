@@ -110,6 +110,11 @@ class ResponsesGptClientTest {
         assertTrue(instructions.contains("KB means 1000 bytes"));
         assertTrue(instructions.contains("KiB means 1024 bytes"));
         assertTrue(instructions.contains("one second is 1000 ms"));
+        assertTrue(instructions.contains("never ask for them or confirmation of defaults"));
+        assertTrue(instructions.contains("this console cannot cancel or delete anything"));
+        assertTrue(instructions.contains("Preserve explicit invalid integer settings for Java to reject"));
+        assertTrue(instructions.contains("current or last"));
+        assertEquals("commands-v2", body.getAsJsonObject("metadata").get("prompt_schema_version").getAsString());
         assertEquals(request.requestId().toString(), captured.requestId());
         assertEquals(request.requestId().toString(), body.getAsJsonObject("metadata").get("request_id").getAsString());
         assertFalse(captured.body().contains(KEY));
