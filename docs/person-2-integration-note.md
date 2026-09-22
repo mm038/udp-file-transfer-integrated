@@ -1,6 +1,6 @@
 # Connecting measurements to the LLM interface
 
-Person 3 to Person 2 | Coordination note | 21 September 2026
+Person 3 to Person 2 | Coordination note | Updated 22 September 2026
 
 ## The main request
 
@@ -8,22 +8,35 @@ The natural-language interface can already start a real transfer, report its bas
 
 The complete revised metric and supporting-field set is already accepted. This note does not ask to approve that scope again. It summarises the contracts to check when connecting our components.
 
-Current handoff status, updated after the September 21 live tests: the user reports that Person 2 has completed metrics/logging on her branch and will take over the merge and real-log connection. Her implementation has not been inspected or merged in this workspace. The requirements below are integration checks against that work, not a claim that she still needs to build every listed item.
+Current handoff status: the user reports that Person 2 has completed metrics/logging on her branch and will take over the merge and real-log connection. Her implementation has not been inspected or merged in this workspace. The requirements below are integration checks against that work, not a claim that she still needs to build every listed item.
+
+September 22 Git inspection found `feature/LLM-integration` at `ca5990c`, “Added live evaluation and reviewed handoff findings”. The original milestone 8 implementation/documents are committed, and the user reports that commit was pushed; no fresh remote fetch verification is claimed here. The deliberate local deletion of `docs/person-3-handoff.md` remains excluded and preserved; `data/` remains untracked and `target/` evidence remains local. The new September 22 corrections are uncommitted.
 
 ## Live evaluation already performed
 
 The user ran a bounded smoke batch and a follow-up synthetic explanations batch with gpt-5-mini on September 21. Saved outputs were reviewed by the assistant with an independent second review. Real natural-language start/basic status, clarification, unsupported-operation restrictions and deterministic Java rejection passed, with minor command wording notes. The real sample was 36 bytes and completed with VERIFIED integrity and matching SHA-256 hashes.
 
-The smoke run stopped on a 30-second explanation API timeout. All four follow-up explanations completed using a 90-second HTTP deadline. Although their automatic reference checks passed, all four need semantic/causal wording corrections: delivery bytes presented as integrity evidence; an inferred timeout-to-resend causal link; asserted corruption without cause/timing evidence; and an unsupported reason for UNCONFIRMED plus confusion between repeated ACKs and distinct acknowledged progress. These are interface/explanation issues, not evidence that Person 2's producer implementation failed. No real producer logs were used in these explanation tests.
+The smoke run stopped on a 30-second explanation API timeout. All four follow-up explanations completed using a 90-second HTTP deadline. Although their automatic reference checks passed, all four were flagged for semantic/causal wording corrections: delivery bytes presented as integrity evidence; an inferred timeout-to-resend causal link; asserted corruption without cause/timing evidence; and an unsupported reason for UNCONFIRMED plus confusion between repeated ACKs and distinct acknowledged progress. These are historical interface/explanation findings, not evidence that Person 2's producer implementation failed. No real producer logs were used in these explanation tests.
 
 Results are relative to the repository root:
 
 - Smoke: target/milestone-8-eval/2026-09-21T17-04-41.966257700Z-14171895076588930966/
 - Explanations: target/milestone-8-eval/2026-09-21T17-14-14.616125800Z-17071091827319850136/
+- September 22 v4 explanations retest: target/milestone-8-eval/2026-09-22T06-58-35.590646700Z-9150417386280831162/
 
-Each contains the original report.jsonl and completed review.md. report.jsonl retains its original pre-review PENDING labels; the worksheet records the later review. target/ is ignored by Git, so these folders must be shared separately if needed. docs/repository-and-milestone-handoff.md and its Word copy contain the portable test summary, model/usage details, repo guide and milestone status.
+Each contains the original report.jsonl and completed review.md. report.jsonl retains its original pre-review PENDING labels; the worksheet records the later review. target/ is ignored by Git, so these folders must be shared separately if needed. [The repository handoff](repository-and-milestone-handoff.md) contains the portable test summary, model/usage details, repo guide and current milestone status. Its historical Word copy, this note's Word copy and `Metrics_Summary_Revised.docx` are currently locally deleted; those deletions are preserved. Use the Markdown documents for current status.
 
-Milestone 8 remains open: explanation corrections/retests and broader command coverage are pending. The delegated merge/log connection can proceed alongside that interface work. Real measured explanations and impairment testing still require the integrated system; synthetic success cannot replace them. This update ran no new API calls and made no prompt/engine changes.
+Person 3's first September 22 correction changed only `ExplanationRequest.java` production prompt instructions to `explanations-v4`: delivery is separate from integrity, repeat ACK arrivals are separate from distinct DATA progress, and aggregate counts cannot establish a causal event sequence. Causal hypotheses must themselves be uncertain and identify missing evidence; an empty hypothesis list is allowed. State/integrity are supplied outcome facts for limitations, not invented numerical references or proof of a cause/timing. Explicit synthetic labeling and endpoint attribution are also reinforced. Numeric citations, missing-value reasons, tool-free explanations and Java validation are preserved. The September 21 live results used `commands-v2` / `explanations-v3`; they are not evidence of v4 behaviour.
+
+The user previewed and deliberately ran the four-call explanations retest on September 22, 06:58:36-07:00:38 UTC (10:58-11:00 Dubai). It requested `gpt-5-mini` and returned `gpt-5-mini-2025-08-07`, using `explanations-v4`, one attempt per call, a terminal-only 90000 ms HTTP deadline and at most 4096 output tokens per call. The application default is unchanged. All automatic checks passed; the assistant and an independent second reviewer then assessed the actual prose against only the model-visible evidence. The original four substantive errors did not recur in these sampled answers.
+
+Remaining findings prevent a blanket full PASS: unsupported diagnostic uses of emitted-byte totals; missing-performance's omitted SYNTHETIC label and mixed-endpoint heading; an unclear failed-verification conclusion; and unconfirmed-outcome's final cannot-answer statement after correctly explaining that counters cannot prove success/integrity. FAILED is preserved without inventing a literal mismatch or its cause. See [the milestone 8 record](person-3-milestone-8.md) and the new `review.md` for details, usage and prior offline verification. No additional source fixes, tests or paid calls were made during this review; the historical 603-test/32-class packaging checkpoint remains historical.
+
+Following the review, the user authorized a narrow refinement; current source uses `explanations-v5`. Diagnostic suggestions must identify evidence capable of testing the claim: aggregate emission totals alone do not establish DATA drops or verify contents. The prompt directly answers what the supplied evidence establishes even when the cause is unknown, preserves FAILED as reported failed verification without inventing a checksum mismatch, places explicit evidence provenance (including SYNTHETIC test fixture when applicable) in limitations, and preserves per-field counter meanings and endpoint attribution throughout the prose. These are general interpretation rules, not a new producer contract.
+
+The v5 refinement is uncommitted and not live-tested; no additional paid calls were made. See [the milestone 8 record](person-3-milestone-8.md) for its separate offline verification status. Existing live reports/reviews remain unchanged historical v3/v4 evidence. Model selection remains `gpt-5-mini`, and the application timeout default is unchanged.
+
+Milestone 8 remains open. Pause further paid retesting until Person 2's merge and genuine-log connection are available and the actual inputs, contracts, identities and outcomes have been checked. Then choose a small test with a fresh deliberate call budget/deadline and review the actual returned prose against only model-visible evidence. The existing four-call explanations batch is synthetic and cannot by itself validate real integration. Broader command coverage remains pending outside this correction task. The delegated merge/log connection is still Person 2's work; this task changes no engine, producer logging/calculations or real evidence connection and stops before milestone 9. Real measured explanations and impairment testing still require the integrated system, and the real `EVIDENCE_UNAVAILABLE` gate remains unchanged.
 
 ## Who owns which part?
 
@@ -32,7 +45,7 @@ Milestone 8 remains open: explanation corrections/retests and broader command co
 | Packet transfer, ACK handling, recovery and integrity operations | Person 1's existing engine. Core stages 1-10.5 are recorded as complete. |
 | Instrumentation, event logs, metric calculations and impairment experiments | Primarily Person 2's measurement work. Changes at engine event points and identity integration are shared coordination with Person 1. |
 | Loading the supplied records, checking identity and meanings, displaying results and sending evidence to GPT | Existing Person 3 interface; the user has now delegated merge and real-log connection to Person 2. Person 3 retains review/testing participation. |
-| Explanation wording corrections found in live evaluation | Open interface follow-up, independent of real-log availability. Not automatically transferred by the merge/log-connection handoff. |
+| Explanation wording corrections found in live evaluation | Person 3 implemented the September 22 v4 correction and reviewed the user-run retest. Original errors did not recur in that sample. The subsequent v5 refinement addresses residual findings but is not live-tested; validation remains open, independently of the delegated merge/log connection. |
 
 Stage 11 instrumentation was still pending at the historical progress-document checkpoint. Check Person 2's actual completed branch for its present implementation. This does not mean the engine lacks the underlying transfer operations. The progress document's older provider plans and unstarted LLM stages do not describe the current interface.
 

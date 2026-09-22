@@ -2,11 +2,11 @@
 
 The Stage 10.5 sender/receiver implements file transfer over UDP using cumulative ACKs, Go-Back-N retransmission, CRC32 and final SHA-256 verification. Person 3 milestones 2-5 add shared types, deterministic command validation, an asynchronous real-engine adapter, a terminal interface and GPT command interpretation.
 
-GPT interpretation and a separate explanation HTTP client are implemented. On September 21, the user ran milestone 8's bounded `smoke` and `explanations` batches, and their saved outputs were reviewed. Real start/status and the command safety checks passed; the first explanation request timed out, and the follow-up explanations completed with semantic/causal findings requiring corrections and retesting. **Milestone 8 remains incomplete.** The [repository and milestone handoff](docs/repository-and-milestone-handoff.md) records the results and exact artifact locations; the September 20 console observations remain separate history.
+GPT interpretation and a separate explanation HTTP client are implemented. On September 21, the user ran milestone 8's bounded `smoke` and `explanations` batches, and their saved outputs were reviewed. Real start/status and the command safety checks passed; the first explanation request timed out, and the follow-up explanations completed with semantic/causal findings. The user ran September 22's four-call `explanations-v4` retest, and its actual prose was reviewed: the original targeted errors were not repeated in this sample, but diagnostic-evidence, conclusion and presentation findings remain. The subsequent authorized refinement is now `explanations-v5`: implemented and offline-checked, **NOT live-tested**. Further paid acceptance is deferred until Person 2's genuine-evidence integration is available and its inputs checked. **Milestone 8 remains incomplete.** The [repository and milestone handoff](docs/repository-and-milestone-handoff.md) records results and exact artifact locations; the September 20 console observations remain separate history.
 
 The user reports that Person 2 has completed metrics/logging on her own branch and will handle the merge and connection to this interface. That branch and its outputs have not been inspected or merged here. The complete revised field set is accepted; real evidence, shared observation/identity association and semantic reconciliation still need verification in the combined implementation. Real explanations on this branch still return `EVIDENCE_UNAVAILABLE`.
 
-Milestone 8's offline verification passed **603 tests across 32 classes**, zero failures/errors/skips, and packaged the JAR. Milestone 7's recorded baseline was 566 tests across 30 classes; its [coverage audit](docs/person-3-milestone-7.md) explains the reused checks. The [milestone 8 walkthrough](docs/person-3-milestone-8.md) records verification, live findings and remaining evaluation. Accepted-metric fixtures cover all 26 numerical fields plus typed test metadata; they are not producer files or real experiments. Current branch: `feature/LLM-integration`, tracking origin; milestone 6 HTTP work and milestone 7 (`f1be0c8`) are committed. Stop for review before milestone 9.
+Milestone 8's historical full offline verification passed **603 tests across 32 classes**, zero failures/errors/skips, and packaged the JAR. September 22's v4 and subsequent v5 corrections each passed a separate focused **151 tests across five classes**, with zero failures/errors/skips; these are repeated selections, not an additive suite total. The v5 run preserved all 98 earlier evaluation/test artifacts. Full verification/packaging was not repeated, so the packaged JAR was not refreshed. Milestone 7's recorded baseline was 566 tests across 30 classes; its [coverage audit](docs/person-3-milestone-7.md) explains the reused checks. The [milestone 8 walkthrough](docs/person-3-milestone-8.md) records exact changes, verification and remaining evaluation. Accepted-metric fixtures cover all 26 numerical fields plus typed test metadata; they are not producer files or real experiments. Git inspection confirmed `feature/LLM-integration` at `ca5990c`; the new prompt/docs changes are uncommitted. Stop for review before milestone 9.
 
 ## Build and test
 
@@ -22,20 +22,22 @@ The runnable JAR is `target/udp-file-transfer.jar`. With dependencies already ca
 
 ## Milestone 8: deliberate live evaluation
 
-Preview the batch first; this makes no API calls:
-
-```powershell
-.\scripts\milestone-8-eval.ps1 -Batch smoke
-```
-
-With `OPENAI_API_KEY` already available privately in this terminal, explicitly enable at most six API calls:
+The user completed the explanation retest described below on September 22; its [manual review](target/milestone-8-eval/2026-09-22T06-58-35.590646700Z-9150417386280831162/review.md) records improvements and remaining findings. These commands are retained for reproducibility; do not automatically repeat the paid run. Previewing the existing four-case batch makes no API calls:
 
 ```powershell
 $env:OPENAI_MODEL = 'gpt-5-mini'
-.\scripts\milestone-8-eval.ps1 -Batch smoke -Live -MaxCalls 6
+.\scripts\milestone-8-eval.ps1 -Batch explanations
 ```
 
-The smoke batch exercises real natural-language start/basic status, missing essentials, unsupported deletion, and two **SYNTHETIC** explanations. The runner also demonstrates deterministic Java rejection. It uses a separate test entry point, one attempt per API request and bounded output. A key alone does not enable paid calls. Each live run writes new `report.jsonl` and `review.md` files under `target/milestone-8-eval/<unique-run>/`; real demo files are isolated there too. The real demo starts its own local receiver.
+Stop and review the preview. Only when deliberately ready to spend credit, with `OPENAI_API_KEY` already available privately in this terminal, explicitly enable at most four API calls:
+
+```powershell
+$env:OPENAI_MODEL = 'gpt-5-mini'
+$env:OPENAI_REQUEST_TIMEOUT_MS = '90000'
+.\scripts\milestone-8-eval.ps1 -Batch explanations -Live -MaxCalls 4
+```
+
+The explanations batch exercises four **SYNTHETIC** evidence questions and demonstrates deterministic Java rejection. It reuses the fixed runner without repeating successful paid command/real-transfer tests. Each request has one attempt and bounded output. The 90-second deadline is a terminal override, separate from transfer timing; the application default remains 30 seconds. A key alone does not enable paid calls. Each live run writes new `report.jsonl` and `review.md` files under `target/milestone-8-eval/<unique-run>/`. The separate smoke/real batches own their local receiver and isolated demo files.
 
 Review both semantic results and model prose before running additional batches (`commands`, `explanations`, `real`). Automatic checks cannot establish that every explanatory claim is true. The [walkthrough](docs/person-3-milestone-8.md) gives expectations, cost guidance, review steps, encoding troubleshooting and the exact pending team dependencies. Synthetic explanations do not enable measured explanations in the ordinary console.
 
@@ -92,7 +94,7 @@ Direct commands remain available without GPT credentials. Natural language reads
 
 For example, `Send report to receiver-a with a 64 KiB window` goes through GPT and then Java validation. Use `ask status of my last transfer` to send a sentence that begins with a reserved direct command to GPT. `explain why the last transfer failed` uses interpretation to select the run, then enters the separate evidence flow. For a real run it shows the coarse outcome and reports missing recorded measurements; it never inserts fixture values. A direct JSON `explain` needs no GPT request.
 
-The explanation tests inject a `SyntheticSummaryProvider` with either a scripted `StubExplanationClient` or the separate `ResponsesExplanationClient` pointed at a local HTTP server. Java verifies run, transfer, provenance and nullable wire identity before analysis, then checks cited field values and units. The HTTP adapter sends the frozen evidence with prompt `explanations-v3`, requests a strict JSON explanation, supplies no execution tools, and rejects tool-call output. It shares bounded HTTP transport with command interpretation while keeping its request and response handling separate. Original evidence and missing reasons remain visible when analysis fails.
+The explanation tests inject a `SyntheticSummaryProvider` with either a scripted `StubExplanationClient` or the separate `ResponsesExplanationClient` pointed at a local HTTP server. Java verifies run, transfer, provenance and nullable wire identity before analysis, then checks cited field values and units. The HTTP adapter sends the frozen evidence with prompt `explanations-v5`, requests a strict JSON explanation, supplies no execution tools, and rejects tool-call output. The instructions separate delivery from verification, ACK arrivals from distinct progress, and counts/outcomes from evidence of causes. The v5 refinement also requires relevant diagnostic evidence, direct and consistent conclusions, explicit provenance, and counter/endpoint accuracy throughout the answer. It shares bounded HTTP transport with command interpretation while keeping its request and response handling separate. Original evidence and missing reasons remain visible when analysis fails. The September 21 saved live answers used `explanations-v3`; September 22's actual v4 retest showed targeted improvements with remaining manual findings. The v5 refinement has only offline checks. Neither those checks nor a prior-version live sample establish v5 model adherence. The existing four-call explanations batch uses synthetic evidence and cannot by itself validate Person 2's real-log connection.
 
 The launcher constructs this explanation client using the existing environment settings, with `SummaryProvider.unavailable()`. Client construction makes no HTTP call, and the REAL-evidence gate returns `EVIDENCE_UNAVAILABLE` before invoking it. There is no production fixture switch. The accepted [metric set](docs/Metrics_Summary_Revised.md) still needs actual producer output, serialization/events and verified identity mapping before real integration. Offline HTTP checks do not establish live model quality. See the [original milestone 6 walkthrough](docs/person-3-milestone-6.md) and its [HTTP adapter follow-up](docs/person-3-milestone-6-http.md) for the code, checks and remaining dependencies.
 
