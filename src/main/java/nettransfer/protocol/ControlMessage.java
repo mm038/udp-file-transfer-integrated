@@ -39,7 +39,7 @@ public class ControlMessage {
     private String sha256Hex;
 
     // FINISH_ACK-only field: did the receiver's recomputed hash match?
-    private boolean verified;
+    private Boolean verified;
 
     // Used by START_ACK (when rejected), FINISH_ACK (when not verified), and ERROR
     private String errorMessage;
@@ -127,7 +127,9 @@ public class ControlMessage {
     public int getChunkSize() { return chunkSize; }
     public boolean isAccepted() { return accepted; }
     public String getSha256Hex() { return sha256Hex; }
-    public boolean isVerified() { return verified; }
+    public boolean isVerified() { return Boolean.TRUE.equals(verified); }
+    /** Null means the FINISH_ACK omitted the required explicit verification result. */
+    public Boolean getVerified() { return verified; }
     public String getErrorMessage() { return errorMessage; }
 
     @Override

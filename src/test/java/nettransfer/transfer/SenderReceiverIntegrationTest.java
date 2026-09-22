@@ -47,7 +47,8 @@ class SenderReceiverIntegrationTest {
 
             Thread receiverThread = new Thread(() -> {
                 try {
-                    ReceiverEngine receiver = new ReceiverEngine(receiverChannel);
+                    ReceiverEngine receiver = new ReceiverEngine(
+                            receiverChannel, 2_000, 2_000, 100, null);
                     receiverResult.set(receiver.receiveFile(outputFile.toString()));
                 } catch (Exception e) {
                     receiverError.set(e);

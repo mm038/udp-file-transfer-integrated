@@ -7,3 +7,12 @@ out/
 experiments/logs/*.csv
 experiments/logs/*.jsonl
 *.log
+/storage/**
+!/storage/outgoing/
+!/storage/incoming/
+!/storage/outgoing/.gitkeep
+!/storage/incoming/.gitkeep
+/test-input.txt
+/test-output.txt
+/logs/**
+!/logs/.gitkeep

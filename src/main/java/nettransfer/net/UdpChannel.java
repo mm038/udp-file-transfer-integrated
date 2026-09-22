@@ -6,6 +6,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.util.function.LongConsumer;
 
 /**
  * UdpChannel is a thin wrapper around java.net.DatagramSocket.
@@ -30,6 +31,7 @@ public class UdpChannel implements AutoCloseable {
     public static final int MAX_PACKET_SIZE = 2048;
 
     private final DatagramSocket socket;
+    private volatile LongConsumer successfulSendObserver;
 
     /**
      * Opens a UDP socket bound to a specific local port.
@@ -52,6 +54,18 @@ public class UdpChannel implements AutoCloseable {
     public void send(byte[] data, InetAddress destAddress, int destPort) throws IOException {
         DatagramPacket packet = new DatagramPacket(data, data.length, destAddress, destPort);
         socket.send(packet);
+        LongConsumer observer = successfulSendObserver;
+        if (observer != null) {
+            observer.accept(data.length);
+        }
+    }
+
+    /**
+     * Installs an endpoint-local observer called after each successful socket send.
+     * Passing null detaches the observer. Incoming datagrams are never reported here.
+     */
+    public void setSuccessfulSendObserver(LongConsumer observer) {
+        successfulSendObserver = observer;
     }
 
     /**

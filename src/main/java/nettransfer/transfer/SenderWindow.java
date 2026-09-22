@@ -75,9 +75,17 @@ public class SenderWindow {
      * and Stage 9 will decide the real handling once duplicates are in scope.
      */
     public void onAckReceived(int cumulativeAckSeqNum) {
-        if (cumulativeAckSeqNum >= base) {
+        if (isValidCumulativeAck(cumulativeAckSeqNum) && cumulativeAckSeqNum >= base) {
             base = cumulativeAckSeqNum + 1;
         }
+    }
+
+    /**
+     * A cumulative ACK may be stale/duplicate, but it cannot be negative or acknowledge DATA that
+     * has not yet been sent. The upper bound also prevents ACKs beyond this transfer's final chunk.
+     */
+    public boolean isValidCumulativeAck(int cumulativeAckSeqNum) {
+        return cumulativeAckSeqNum >= 0 && cumulativeAckSeqNum < nextSeqNumToSend;
     }
 
     /** True once every chunk in the file has been acknowledged. */
@@ -86,6 +94,7 @@ public class SenderWindow {
     }
 
     public int getBase() { return base; }
+    public int getNextUnsentSeqNum() { return nextSeqNumToSend; }
     public int getWindowSize() { return windowSize; }
     public int getTotalChunks() { return totalChunks; }
 }
