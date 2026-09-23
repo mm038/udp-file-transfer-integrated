@@ -6,15 +6,12 @@ also includes live metrics, endpoint-local event logs and summaries, verified
 sender/receiver reconciliation, and an opt-in command console with deterministic
 validation and GPT-assisted natural-language interpretation.
 
-The metrics/logging implementation and the LLM/CLI implementation are both in
-this merged tree. Their last connection is intentionally incomplete: the new
-command console starts the real sender, but its `RealTransferService` does not
-yet consume the engine's live snapshots, persisted endpoint records, or
-reconciled summaries. Consequently, console status exposes only coarse state,
-file size, and the final chunk count when available, and a real `explain`
-request returns `EVIDENCE_UNAVAILABLE`. Synthetic explanation fixtures are used
-only by tests and deliberate evaluation; they are never substituted for real
-measurements.
+The metrics/logging and LLM/CLI implementations are connected through one
+Java-configured trusted logging root. The command console starts the real
+sender, reports its immutable live snapshots, persists sender evidence, and can
+load validated sender-final or reconciled evidence for explanation. Synthetic
+fixtures remain limited to tests and deliberate evaluation; they are never
+substituted for missing real measurements.
 
 ## Prerequisites, build, and tests
 
@@ -168,9 +165,12 @@ receiver-observed integrity remain separate, and unavailable values remain null
 with reasons. See [LOGGING.md](LOGGING.md) for schemas, formulas, completeness
 rules, and the full verification procedure.
 
-These logs and reconciled summaries are implemented and test-covered in the
-engine path. They are not yet loaded by the new command console's status or GPT
-explanation flow.
+The command console uses the same `<projectRoot>/logs` root for sender logging
+and validated evidence lookup. After a terminal sender result, `explain` may
+initially report `EVIDENCE_PENDING` while the receiver finishes its intentional
+completion-recovery period. The repository retrieves exact application,
+sender-run, and protocol identities; when both endpoints are final it validates
+and, if needed, creates the reconciled summary through the existing exporter.
 
 ## Run the validated command console
 
@@ -214,11 +214,20 @@ policy is preserved, so the approximate maximum START handshake duration is
 defaults). Window bytes must be 1,024-1,048,576 and are rounded down to packet
 slots; timeout milliseconds must be 50-5,000.
 
-The adapter currently does not attach `Main`'s event logger or bridge the
-engine's live observations. Therefore console protocol UUID, ACK progress,
-percentage, throughput, protocol duration, persisted evidence, and real GPT
-metric explanations remain unavailable even though the underlying engine can
-produce those measurements through its direct/instrumented path.
+The console writes real sender evidence beneath
+`<projectRoot>/logs/standalone/<application-transfer-id>/`. Status reads the
+adapter's retained `LiveMetricsSnapshot` and displays the protocol UUID, sender
+lifecycle, provisional/final endpoint scope, file size, sender-confirmed ACKed
+bytes and display-only progress percentage, elapsed time, ACK-based sender
+rate, packet/ACK/timeout counters, RTT observations, and endpoint-local UDP
+emissions. A missing value is printed as unavailable with its reason; an
+observed zero remains zero.
+
+These status values are sender observations. In particular,
+`sender_ack_based_rate_mbps` is not receiver-delivered or reconciled
+throughput, and ACK progress does not establish receiver SHA-256 integrity.
+Reconciled `throughput_mbps` appears only in validated explanation evidence
+after receiver delivery evidence is available.
 
 ### Console commands and validation
 
@@ -230,7 +239,7 @@ produce those measurements through its direct/instrumented path.
 | `status current` | Require an active run. |
 | `status last`, `status last transfer` | Select the latest terminal run. |
 | `status <UUID>` | Select an exact in-memory application transfer ID. |
-| `explain {"run_id":null,"question":"What happened?"}` | Select a frozen result; real recorded evidence currently returns `EVIDENCE_UNAVAILABLE`. |
+| `explain {"run_id":null,"question":"What happened?"}` | Select a frozen result and retrieve exact validated REAL evidence from the trusted log root. |
 | `ask <sentence>` or an ordinary sentence | Ask GPT for one structured proposal, then validate it independently in Java. |
 | `exit` | Refuse while a transfer is active; exit when idle. |
 
@@ -244,7 +253,9 @@ clears that context after direct commands, failures, rejections, or execution.
 
 ## GPT configuration and explanation flow
 
-Direct commands need no API key. Natural-language interpretation reads:
+Direct start, status, help, and catalogue commands need no API key. An API key
+is required only when natural-language interpretation is requested or when an
+AVAILABLE evidence set is sent for explanation:
 
 ```powershell
 $env:OPENAI_API_KEY = '<set privately>'
@@ -263,19 +274,46 @@ a proposal and then subjected to the same Java parser and validator. Use `ask`
 when a natural-language sentence begins with a reserved direct command, such as
 `ask status of my last transfer`.
 
-The separate explanation flow first selects a frozen transfer outcome and
-checks run/transfer identity and provenance. Its HTTP client requests strict
+The explanation flow selects a frozen transfer outcome, then uses
+`PersistedEvidenceRepository` and `RealMetricsSummaryProvider` to require exact
+application, sender-run, and protocol identities. Only complete, final,
+validated `SENDER_FINAL`, `RECEIVER_FINAL`, or `RECONCILED` REAL evidence can
+reach the existing explanation client. The HTTP client requests strict
 structured JSON, exposes no execution tools, verifies cited field values and
-units, and preserves the original evidence if model analysis fails. In
-production, however, the launcher deliberately uses an unavailable
-`SummaryProvider`, and `ExplanationFlow` blocks REAL selections before an HTTP
-call. Connecting finalized real summaries, verified application/protocol
-identity, and live observations to this flow is still required and must be
-implemented and tested before claiming that GPT analyzes real transfer metrics.
+units, and preserves the original evidence if model analysis fails.
+
+Non-available evidence never triggers an API request. `EVIDENCE_PENDING` means
+recording or receiver recovery is still active; `EVIDENCE_INCOMPLETE` means a
+final evidence boundary was not reached; `EVIDENCE_UNAVAILABLE` means no
+applicable validated evidence exists; and `EVIDENCE_REJECTED` means identity,
+schema, provenance, ambiguity, integrity, or other validation failed. The CLI
+prints the repository reason and never falls back to synthetic evidence. A
+transfer failure remains distinct from an evidence or explanation failure.
 
 See the [milestone 5 walkthrough](docs/person-3-milestone-5.md) for command
 interpretation and [milestone 6](docs/person-3-milestone-6.md) plus its
 [HTTP follow-up](docs/person-3-milestone-6-http.md) for the explanation boundary.
+
+## Final integrated acceptance status
+
+The Stage 7 offline acceptance campaign exercises the complete CLI-to-real-UDP-to-logging-to-
+reconciliation-to-explanation path with a deterministic explanation stub. It verifies real
+loopback bytes and SHA-256, live and retained sender status, receiver completion-recovery
+`PENDING`, finalized endpoint records, exact identity association, reconciliation, metric
+invariants, unavailable reasons, and REAL evidence presentation.
+
+The final run on September 23, 2026 reported:
+
+```text
+Focused integration/regression set: 223 tests, 0 failures, 0 errors, 0 skipped
+Full mvn verify:                    762 tests, 0 failures, 0 errors, 0 skipped
+JAR packaging:                     SUCCESS (target/udp-file-transfer.jar)
+```
+
+This establishes offline integration and real loopback UDP behavior. It does not establish live
+GPT prose quality or cross-host network behavior. No paid API call was made. See
+[Stage 7 integrated acceptance](docs/stage-7-acceptance.md) for the genuine-versus-targeted test
+matrix and the optional, explicitly authorized one-call live-GPT procedure.
 
 ## Deliberate evaluation and historical results
 

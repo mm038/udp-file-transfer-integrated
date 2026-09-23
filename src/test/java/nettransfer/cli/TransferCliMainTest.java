@@ -89,6 +89,22 @@ class TransferCliMainTest {
         assertEquals(Path.of("data/input/other file.txt"), config.approvedFiles().get("other"));
         assertEquals("127.0.0.1", config.approvedReceivers().get("receiver-a").getAddress().getHostAddress());
         assertEquals(9000, config.approvedReceivers().get("receiver-a").getPort());
+        assertEquals(root.resolve("logs"), TransferCliMain.loggingRoot(config));
+    }
+
+    @Test
+    void runtimeUsesOneTrustedLoggingRootForSenderAndEvidencePipeline() throws Exception {
+        var config = TransferCliMain.configurationFromArgs(new String[]{root.toString(),
+                "report=data/input/report.txt"});
+
+        try (var runtime = TransferCliMain.realRuntime(config, request -> {
+            throw new AssertionError("Runtime construction must not invoke the explanation client");
+        })) {
+            assertEquals(TransferCliMain.loggingRoot(config).toAbsolutePath().normalize(),
+                    runtime.loggingRoot());
+            assertNotNull(runtime.service());
+            assertNotNull(runtime.explanations());
+        }
     }
 
     @Test

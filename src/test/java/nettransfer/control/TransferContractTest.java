@@ -14,15 +14,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TransferContractTest {
     @Test
-    void engineSentinelIsUnavailableWhileZeroRemainsAnObservedZero() {
-        nettransfer.transfer.TransferResult success = nettransfer.transfer.TransferResult.success(-1);
-        nettransfer.transfer.TransferResult failure = nettransfer.transfer.TransferResult.failure("Failed");
+    void controlMetricsAreAViewOfTheAuthoritativeMetricsSnapshot() {
+        TransferMetrics metrics = TransferMetrics.synthetic(1024L, 0L, 0L);
 
-        assertNull(TransferMetrics.chunkCountFromEngine(success.getTotalChunks()));
-        assertNull(TransferMetrics.chunkCountFromEngine(failure.getTotalChunks()));
-        assertEquals(0, TransferMetrics.chunkCountFromEngine(0));
-        assertEquals(5, TransferMetrics.chunkCountFromEngine(5));
-        assertThrows(IllegalArgumentException.class, () -> TransferMetrics.chunkCountFromEngine(-2));
+        assertSame(metrics.liveSnapshot().metrics(), metrics.authoritativeMetrics());
+        assertEquals(1024L, metrics.fileSizeBytes());
+        assertEquals(0L, metrics.uniquePayloadBytesAcked());
+        assertEquals(0L, metrics.elapsedMillis());
+        assertNull(metrics.totalChunks(), "No separate control-layer chunk measurement is maintained");
     }
 
     @Test
@@ -52,15 +51,11 @@ class TransferContractTest {
     }
 
     @Test
-    void unavailableMeasurementsRequireAnExplanationAndCannotMasqueradeAsNegativeCounts() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new TransferMetrics(1024L, null, null, null, null));
-        assertThrows(IllegalArgumentException.class,
-                () -> new TransferMetrics(1024L, null, null, null, " "));
-        assertThrows(IllegalArgumentException.class,
-                () -> new TransferMetrics(1024L, 0L, 0L, -1, "Raw engine sentinel"));
-        assertThrows(IllegalArgumentException.class,
-                () -> new TransferMetrics(1024L, 2048L, 10L, 1, null));
+    void unavailableMeasurementsRequireAnExplanationAndSyntheticProgressMustBeConsistent() {
+        assertThrows(IllegalArgumentException.class, () -> TransferMetrics.unavailable(null));
+        assertThrows(IllegalArgumentException.class, () -> TransferMetrics.unavailable(" "));
+        assertThrows(IllegalArgumentException.class, () -> TransferMetrics.synthetic(-1L, 0L, 0L));
+        assertThrows(IllegalArgumentException.class, () -> TransferMetrics.synthetic(1024L, 2048L, 10L));
     }
 
     private static TransferMetrics metrics() {
@@ -68,8 +63,19 @@ class TransferContractTest {
     }
 
     private static TransferSnapshot snapshot(UUID id, TransferState state) {
+        Instant capturedAt = Instant.parse("2026-09-20T08:00:00Z");
+        var lifecycle = switch (state) {
+            case RUNNING -> nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.TRANSFERRING;
+            case COMPLETED -> nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.SUCCEEDED;
+            case FAILED -> nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.FAILED;
+        };
+        TransferMetrics metrics = metrics().asSyntheticSnapshot(capturedAt, lifecycle,
+                state == TransferState.RUNNING ? null : state == TransferState.COMPLETED,
+                state == TransferState.FAILED ? "Synthetic failure" : null);
+        TransferError error = state == TransferState.FAILED
+                ? new TransferError(TransferError.Code.TRANSFER_FAILED, "Synthetic failure") : null;
         return new TransferSnapshot(id, id, null, state, Instant.parse("2026-09-20T08:00:00Z"),
-                EvidenceSource.SYNTHETIC, metrics(), null);
+                EvidenceSource.SYNTHETIC, metrics, error);
     }
 
     private static TransferRequest request() {

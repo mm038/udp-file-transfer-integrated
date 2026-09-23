@@ -108,6 +108,11 @@ when the filesystem does not support atomic moves. The JSONL writer is synchroni
 normal finalization flushes all pending records. A hard process or power failure can lose buffered
 records, and a missing terminal event does not imply success or failure.
 
+When a receiver first establishes its protocol UUID, the logger atomically refreshes its
+still-`RECORDING` run state with that trusted identity. This exposes no partial metrics and makes no
+finalization claim; it only lets exact repository lookup distinguish a matching active receiver as
+`PENDING` during completion recovery instead of guessing by filename, timestamp, or recency.
+
 Startup failures such as an inaccessible root or run collision throw `IOException` before transfer
 work begins. Runtime serialization, write, flush, or close failures are retained by
 `EventLogger.getLoggingFailure()`, reported to standard error, and prevent a finalized evidence
@@ -207,6 +212,57 @@ reconciled when both evidence sets are complete; its failed outcome remains expl
 crash, active `RECORDING` state, missing terminal event, or logging failure is incomplete
 evidence and cannot produce a verified complete summary.
 
+## Persisted evidence lookup
+
+`PersistedEvidenceRepository` is the application-facing reader for finalized evidence beneath one
+explicitly configured, trusted logging root. `lookup(senderRunId, applicationTransferId)` first
+selects the exact sender run and verifies both identities. It then uses only the sender record's
+validated protocol UUID to find an unambiguous receiver. It never associates runs by filename,
+timestamp, directory order, or recency. `lookupReceiver(protocolUuid)` and
+`lookupReconciled(protocolUuid)` provide exact receiver and finalized-summary retrieval.
+
+Every endpoint is passed through `MetricsExporter.readValidatedEndpoint`. Existing summaries are
+passed through `MetricsExporter.readValidatedReconciled`, which revalidates their manifest, source
+references, source endpoint records, identities, and calculated contents before reuse. If both
+finalized endpoints exist and no summary has been published, the repository invokes the existing
+`MetricsExporter.reconcile` API and then validates the result. Original endpoint evidence is never
+modified.
+
+Lookup results are typed as `AVAILABLE`, `PENDING`, `INCOMPLETE`, `UNAVAILABLE`, or `REJECTED`.
+Only `AVAILABLE` carries validated evidence. A finalized sender failure may be available as
+sender-only evidence when no finalized receiver counterpart exists; it is not labeled reconciled.
+A finalized receiver-local integrity success can be reconciled with a sender FINISH-handshake
+failure without changing the sender's failed outcome. Recording, interrupted, missing, ambiguous,
+synthetic, malformed, conflicting, or unsafe evidence remains explicitly distinct.
+
+All lookup-derived paths stay beneath the trusted root. Traversal, symbolic evidence paths,
+external source references, duplicate candidates, and application/protocol identity conflicts are
+rejected. Natural-language input and GPT output are not evidence paths and are not accepted by this
+API.
+
+`RealMetricsSummaryProvider` is the Stage 4 read-only adapter from this repository to the
+explanation evidence model. Its typed lookup requires the trusted application ID, sender run ID,
+and protocol UUID and preserves repository outcomes as `AVAILABLE`, `PENDING`, `INCOMPLETE`,
+`UNAVAILABLE`, or `REJECTED`. Only `AVAILABLE` is converted. The conversion explicitly copies the
+26 supported numeric metrics, their units, observed/configured classification, and existing
+unavailable reasons; it does not calculate missing values. Provenance, endpoint scope, terminal
+outcomes, identities, schema versions, receiver-local integrity, and validated source references
+remain typed metadata outside the numeric field list.
+
+`ExplanationFlow` can now consume this provider through its typed trusted-selection lookup. A REAL
+summary reaches the explanation client only when it is `AVAILABLE`, REAL, complete, final,
+identity-matched, on a supported schema and definition version, and scoped as `SENDER_FINAL`,
+`RECEIVER_FINAL`, or `RECONCILED`. Typed `PENDING`, `INCOMPLETE`, `UNAVAILABLE`, and `REJECTED`
+results retain their reason and do not invoke the client. Existing synthetic fixtures retain
+`SYNTHETIC_FIXTURE` scope and their fixture-only definition version; neither evidence source can be
+used as a fallback for the other.
+
+`TransferCliMain` installs this provider in `ExplanationFlow` and gives both the repository and
+`RealTransferService` the same Java-configured `<projectRoot>/logs` root. The path is derived from
+validated startup configuration, not a GPT proposal or natural-language input. CLI status remains
+a direct view of the retained sender `LiveMetricsSnapshot`; finalized explanation evidence remains
+a separate repository lookup and validation step.
+
 ### Manifest schema
 
 `manifest.json` schema version `1` records the metric-definition version, protocol UUID,
@@ -221,11 +277,13 @@ Consumers should read only independently parseable JSONL lines and consult `run-
 treating a local log as complete. Sender and receiver records can have different run IDs and wall
 clocks. They are not joined by filename, timestamp, or directory placement.
 
-The finalized artifacts form a read-only evidence contract for a future consumer. It can
+The finalized artifacts form a read-only evidence contract for consumers including the command
+console explanation flow. A consumer can
 locate one verified protocol transfer, distinguish sender confirmation from receiver
 integrity, inspect unavailable reasons, and follow the manifest to the original evidence.
-Metrics export does not implement GPT calls, prompt construction, impairment simulation,
-or natural-language interpretation.
+Metrics export itself does not implement GPT calls, prompt construction, impairment simulation,
+or natural-language interpretation. Only an `AVAILABLE` provider result may cross into the
+separate explanation client; all other typed results remain local Java status and reason output.
 
 For end-to-end verification, start a receiver and sender with a fresh source and
 destination plus a shared `nettransfer.logsRoot`, confirm both processes terminate,

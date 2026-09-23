@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -102,5 +103,47 @@ class EventLoggerTest {
         Path regularFile = Files.writeString(tempDir.resolve("not-a-directory"), "occupied");
         TransferContext context = TransferContext.builder(TransferContext.Endpoint.SENDER).build();
         assertThrows(IOException.class, () -> EventLogger.open(regularFile, context));
+    }
+
+    @Test
+    void applicationIdentityCannotDriftWithinOneLogSession(@TempDir Path tempDir) throws Exception {
+        TransferContext original = TransferContext.builder(TransferContext.Endpoint.SENDER)
+                .runId("stable-run").applicationTransferId("application-1").build();
+        TransferContext conflicting = original.toBuilder()
+                .applicationTransferId("application-2").build();
+        EventLogger logger = EventLogger.open(tempDir.resolve("logs"), original);
+
+        logger.record(conflicting, EventType.START_ATTEMPT, TransferEvent.Direction.OUTBOUND,
+                TransferEvent.Details.empty());
+
+        assertNotNull(logger.getLoggingFailure());
+        assertFalse(logger.isFinalized());
+        JsonObject state = JsonParser.parseString(Files.readString(logger.getRunStateFile()))
+                .getAsJsonObject();
+        assertEquals("LOGGING_FAILED", state.get("recording_state").getAsString());
+    }
+
+    @Test
+    void establishedProtocolIdentityIsPublishedWhileRunRemainsRecording(@TempDir Path tempDir)
+            throws Exception {
+        UUID protocolId = UUID.randomUUID();
+        TransferContext initial = TransferContext.builder(TransferContext.Endpoint.RECEIVER)
+                .runId("receiver-live").build();
+        TransferContext established = initial.toBuilder().protocolTransferId(protocolId).build();
+        EventLogger logger = EventLogger.open(tempDir.resolve("logs"), initial);
+        try {
+            logger.record(established, EventType.START_ACCEPTED, TransferEvent.Direction.INBOUND,
+                    TransferEvent.Details.builder().messageType("START").build());
+
+            JsonObject state = JsonParser.parseString(Files.readString(logger.getRunStateFile()))
+                    .getAsJsonObject();
+            assertEquals("RECORDING", state.get("recording_state").getAsString());
+            assertEquals(protocolId.toString(), state.get("protocol_transfer_id").getAsString());
+            assertFalse(state.get("writer_flushed_and_closed").getAsBoolean());
+            assertEquals(1, state.get("event_count").getAsLong());
+            assertFalse(logger.isFinalized());
+        } finally {
+            logger.close();
+        }
     }
 }

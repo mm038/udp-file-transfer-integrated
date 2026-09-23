@@ -132,7 +132,7 @@ class ResponsesExplanationClientTest {
         assertEquals(fixture.integrity().name(), data.get("integrity").getAsString());
         JsonObject evidence = data.getAsJsonObject("evidence");
         assertEquals(Set.of("run_id", "transfer_id", "protocol_transfer_id", "evidence_source", "captured_at",
-                "definition_version", "label", "fields"), evidence.keySet());
+                "definition_version", "label", "evidence_metadata", "fields"), evidence.keySet());
         assertEquals(fixture.evidence().runId().toString(), evidence.get("run_id").getAsString());
         assertEquals(fixture.evidence().transferId().toString(), evidence.get("transfer_id").getAsString());
         assertEquals(fixture.evidence().protocolTransferId().toString(), evidence.get("protocol_transfer_id").getAsString());
@@ -140,6 +140,18 @@ class ResponsesExplanationClientTest {
         assertEquals(fixture.evidence().capturedAt().toString(), evidence.get("captured_at").getAsString());
         assertEquals(fixture.evidence().definitionVersion(), evidence.get("definition_version").getAsString());
         assertEquals(fixture.evidence().label(), evidence.get("label").getAsString());
+        JsonObject evidenceMetadata = evidence.getAsJsonObject("evidence_metadata");
+        assertEquals(Set.of("scope", "completeness", "finalization_status", "application_transfer_id",
+                "sender_run_id", "receiver_run_id", "protocol_transfer_id", "metrics_schema_version",
+                "metric_definition_version", "sender_terminal_outcome", "receiver_integrity_verified",
+                "failure_category", "failure_reason", "source_references"), evidenceMetadata.keySet());
+        assertEquals(fixture.evidence().metadata().scope().name(), evidenceMetadata.get("scope").getAsString());
+        assertEquals(fixture.evidence().metadata().applicationTransferId(),
+                evidenceMetadata.get("application_transfer_id").getAsString());
+        assertEquals(fixture.evidence().metadata().metricDefinitionVersion(),
+                evidenceMetadata.get("metric_definition_version").getAsString());
+        assertEquals(fixture.evidence().metadata().sourceReferences().size(),
+                evidenceMetadata.getAsJsonArray("source_references").size());
         JsonArray fields = evidence.getAsJsonArray("fields");
         assertEquals(fixture.evidence().fields().size(), fields.size());
         for (int i = 0; i < fields.size(); i++) {
@@ -448,7 +460,7 @@ class ResponsesExplanationClientTest {
 
         var result = flow.explain(selected, "Explain this real run.");
 
-        assertEquals(EVIDENCE_UNAVAILABLE, result.status());
+        assertEquals(EVIDENCE_REJECTED, result.status());
         assertNull(result.evidence());
         assertNull(result.draft());
         assertTrue(requests.isEmpty());

@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.LinkOption;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
@@ -105,9 +106,9 @@ public final class MetricsExporter {
             throws IOException, EvidenceException {
         Path senderDirectory = normalizedDirectory(senderRunDirectory, "sender");
         Path receiverDirectory = normalizedDirectory(receiverRunDirectory, "receiver");
-        EndpointEvidence sender = readAndValidateEndpoint(
+        ValidatedEndpointEvidence sender = readValidatedEndpoint(
                 senderDirectory, TransferContext.Endpoint.SENDER);
-        EndpointEvidence receiver = readAndValidateEndpoint(
+        ValidatedEndpointEvidence receiver = readValidatedEndpoint(
                 receiverDirectory, TransferContext.Endpoint.RECEIVER);
         validateAssociation(sender.record(), receiver.record());
         validateCrossRelationships(sender.record(), receiver.record());
@@ -158,7 +159,80 @@ public final class MetricsExporter {
         }
     }
 
-    private static EndpointEvidence readAndValidateEndpoint(
+    /**
+     * Reads a published reconciliation and revalidates its manifest, source endpoints,
+     * identities, and calculated summary without changing any evidence.
+     */
+    public static ExportResult readValidatedReconciled(Path outputDirectory)
+            throws IOException, EvidenceException {
+        Path directory = normalizedDirectory(outputDirectory, "reconciled output");
+        Path reconciledParent = directory.getParent();
+        Path scope = reconciledParent == null ? null : reconciledParent.getParent();
+        if (scope == null || !"reconciled".equals(reconciledParent.getFileName().toString())) {
+            throw new EvidenceException("INVALID_RECONCILED_LOCATION",
+                    "reconciled output is not under a scope reconciliation directory");
+        }
+        String protocolId = directory.getFileName().toString();
+        parseUuid(protocolId, "reconciled directory protocol UUID");
+
+        Path summaryPath = secureRegularFile(directory, directory, "summary.jsonl");
+        Path manifestPath = secureRegularFile(directory, directory, "manifest.json");
+        FinalMetricsSummary summary = readSingleJson(
+                summaryPath, FinalMetricsSummary.class, "summary");
+        Manifest manifest = readSingleJson(manifestPath, Manifest.class, "manifest");
+        if (summary == null || manifest == null || summary.sourceEvidence() == null
+                || summary.metrics() == null) {
+            throw new EvidenceException("MALFORMED_RECONCILED_EVIDENCE",
+                    "summary or manifest lacks required evidence");
+        }
+        requireEqual("summary protocol UUID", protocolId, summary.protocolTransferId());
+
+        FinalMetricsSummary.SourceEvidence sources = summary.sourceEvidence();
+        Path senderEndpoint = secureRegularFile(
+                scope, directory, sources.senderEndpointRecord());
+        Path receiverEndpoint = secureRegularFile(
+                scope, directory, sources.receiverEndpointRecord());
+        ValidatedEndpointEvidence sender = readValidatedEndpoint(
+                senderEndpoint.getParent(), TransferContext.Endpoint.SENDER);
+        ValidatedEndpointEvidence receiver = readValidatedEndpoint(
+                receiverEndpoint.getParent(), TransferContext.Endpoint.RECEIVER);
+        requireEqual("sender endpoint reference", sender.endpointPath().toRealPath(),
+                senderEndpoint.toRealPath());
+        requireEqual("receiver endpoint reference", receiver.endpointPath().toRealPath(),
+                receiverEndpoint.toRealPath());
+        requireEqual("sender event reference", sender.eventPath().toRealPath(),
+                secureRegularFile(scope, directory, sources.senderEventLog()).toRealPath());
+        requireEqual("receiver event reference", receiver.eventPath().toRealPath(),
+                secureRegularFile(scope, directory, sources.receiverEventLog()).toRealPath());
+        requireEqual("sender state reference", sender.statePath().toRealPath(),
+                secureRegularFile(scope, directory, sources.senderRunState()).toRealPath());
+        requireEqual("receiver state reference", receiver.statePath().toRealPath(),
+                secureRegularFile(scope, directory, sources.receiverRunState()).toRealPath());
+        validateAssociation(sender.record(), receiver.record());
+        validateCrossRelationships(sender.record(), receiver.record());
+
+        Instant finalizedAt;
+        try {
+            finalizedAt = Instant.parse(summary.finalizedAtUtc());
+        } catch (RuntimeException exception) {
+            throw new EvidenceException("INVALID_FINALIZATION_TIME",
+                    "summary finalization time is invalid", exception);
+        }
+        FinalMetricsSummary expected = buildSummary(sender, receiver, directory, finalizedAt);
+        if (!JSON.toJsonTree(expected).equals(JSON.toJsonTree(summary))) {
+            throw new EvidenceException("SUMMARY_EVIDENCE_MISMATCH",
+                    "summary does not match its validated endpoint evidence");
+        }
+        Manifest expectedManifest = buildManifest(directory, sender, receiver, expected, finalizedAt);
+        if (!JSON.toJsonTree(expectedManifest).equals(JSON.toJsonTree(manifest))) {
+            throw new EvidenceException("MANIFEST_EVIDENCE_MISMATCH",
+                    "manifest does not match its validated summary and endpoint evidence");
+        }
+        return new ExportResult(directory, summaryPath, manifestPath, summary);
+    }
+
+    /** Reads and fully validates one finalized endpoint directory without modifying it. */
+    public static ValidatedEndpointEvidence readValidatedEndpoint(
             Path directory, TransferContext.Endpoint expected) throws IOException, EvidenceException {
         String suffix = expected.name().toLowerCase(java.util.Locale.ROOT);
         Path endpointPath = directory.resolve("endpoint-" + suffix + ".json");
@@ -197,10 +271,13 @@ public final class MetricsExporter {
         requireEqual("terminal lifecycle", "SUCCESS".equals(record.terminalOutcome())
                 ? "SUCCEEDED" : "FAILED", record.lifecycleState());
         requireEqual("endpoint run ID", record.runId(), record.metrics().getRunId());
+        requireEqual("application transfer ID", record.applicationTransferId(),
+                record.metrics().getApplicationTransferId());
         requireEqual("endpoint protocol UUID", record.protocolTransferId(),
                 record.metrics().getProtocolTransferId());
         parseUuid(record.protocolTransferId(), expected + " protocol UUID");
         validateConfigurationProjection(record);
+        validateUnavailableReasons(record.metrics());
 
         Path statePath = resolveChild(directory, record.runStateReference());
         Path eventPath = resolveChild(directory, record.eventLogReference());
@@ -208,7 +285,7 @@ public final class MetricsExporter {
         validateRunState(state, record, expected);
         EventEvidence eventEvidence = validateEvents(eventPath, state, record, expected);
         validateEventMetricConsistency(record, eventEvidence, expected);
-        return new EndpointEvidence(directory, endpointPath, eventPath, statePath, record);
+        return new ValidatedEndpointEvidence(directory, endpointPath, eventPath, statePath, record);
     }
 
     private static void validateConfigurationProjection(EndpointMetricsRecord record)
@@ -276,7 +353,7 @@ public final class MetricsExporter {
     }
 
     private static FinalMetricsSummary buildSummary(
-            EndpointEvidence senderEvidence, EndpointEvidence receiverEvidence,
+            ValidatedEndpointEvidence senderEvidence, ValidatedEndpointEvidence receiverEvidence,
             Path outputDirectory, Instant finalizedAt)
             throws EvidenceException {
         EndpointMetricsRecord sender = senderEvidence.record();
@@ -321,8 +398,9 @@ public final class MetricsExporter {
         copyReasonIfNull(unavailable, "scenario", s.getScenario(), s);
         copyReasonIfNull(unavailable, "impairment_seed", s.getImpairmentSeed(), s);
 
-        String applicationId = Objects.equals(sender.applicationTransferId(), receiver.applicationTransferId())
-                ? sender.applicationTransferId() : null;
+        // validateAssociation has already rejected conflicting non-null identities.
+        String applicationId = firstNonNull(
+                sender.applicationTransferId(), receiver.applicationTransferId());
         String experimentId = sender.experimentId() != null
                 ? sender.experimentId() : receiver.experimentId();
         String failureReason = Boolean.TRUE.equals(s.getTransferSuccess())
@@ -378,8 +456,8 @@ public final class MetricsExporter {
                 applicationId, experimentId, combined, sources, finalizedAt.toString());
     }
 
-    private static Manifest buildManifest(Path outputDirectory, EndpointEvidence sender,
-                                          EndpointEvidence receiver, FinalMetricsSummary summary,
+    private static Manifest buildManifest(Path outputDirectory, ValidatedEndpointEvidence sender,
+                                          ValidatedEndpointEvidence receiver, FinalMetricsSummary summary,
                                           Instant finalizedAt) {
         return new Manifest(
                 MetricsSchema.MANIFEST_SCHEMA_VERSION,
@@ -449,6 +527,8 @@ public final class MetricsExporter {
             requireJsonString(event, "schema_version", MetricsSchema.EVENT_SCHEMA_VERSION);
             requireJsonString(event, "run_id", record.runId());
             requireJsonString(event, "endpoint", endpoint.name());
+            requireJsonNullableString(event, "application_transfer_id",
+                    record.applicationTransferId());
             if (!event.has("event_sequence") || event.get("event_sequence").getAsLong() != index) {
                 throw new EvidenceException("EVENT_ORDER_INVALID",
                         "event sequence is not contiguous at line " + (index + 1));
@@ -572,21 +652,63 @@ public final class MetricsExporter {
     private static Path normalizedDirectory(Path path, String label) throws IOException {
         Objects.requireNonNull(path, label + " run directory is required");
         Path normalized = path.toAbsolutePath().normalize();
-        if (!Files.isDirectory(normalized)) {
+        if (Files.isSymbolicLink(normalized)
+                || !Files.isDirectory(normalized, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException(label + " run directory does not exist: " + normalized);
         }
         return normalized;
     }
 
     private static Path resolveChild(Path directory, String reference) throws EvidenceException {
+        return secureRegularFile(directory, directory, reference);
+    }
+
+    private static Path secureRegularFile(Path allowedRoot, Path base, String reference)
+            throws EvidenceException {
         if (reference == null || reference.isBlank()) {
             throw new EvidenceException("MISSING_REFERENCE", "endpoint evidence reference is unavailable");
         }
-        Path resolved = directory.resolve(reference).normalize();
-        if (!resolved.startsWith(directory) || !Files.isRegularFile(resolved)) {
+        Path root = allowedRoot.toAbsolutePath().normalize();
+        Path resolved = base.resolve(reference).toAbsolutePath().normalize();
+        if (!resolved.startsWith(root)) {
+            throw new EvidenceException("UNSAFE_OR_MISSING_REFERENCE", "evidence reference escapes its scope");
+        }
+        Path current = root;
+        for (Path component : root.relativize(resolved)) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current)) {
+                throw new EvidenceException("UNSAFE_OR_MISSING_REFERENCE",
+                        "symbolic evidence references are not allowed");
+            }
+        }
+        if (!Files.isRegularFile(resolved, LinkOption.NOFOLLOW_LINKS)) {
             throw new EvidenceException("UNSAFE_OR_MISSING_REFERENCE", "invalid evidence reference: " + reference);
         }
-        return resolved;
+        try {
+            if (!resolved.toRealPath().startsWith(root.toRealPath())) {
+                throw new EvidenceException("UNSAFE_OR_MISSING_REFERENCE",
+                        "evidence reference escapes its trusted scope");
+            }
+            return resolved;
+        } catch (IOException exception) {
+            throw new EvidenceException("UNSAFE_OR_MISSING_REFERENCE",
+                    "evidence reference is inaccessible", exception);
+        }
+    }
+
+    private static <T> T readSingleJson(Path path, Class<T> type, String label)
+            throws IOException, EvidenceException {
+        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        if (lines.size() != 1 || lines.get(0).isBlank()) {
+            throw new EvidenceException("MALFORMED_" + label.toUpperCase(),
+                    label + " must contain exactly one JSON record");
+        }
+        try {
+            return JSON.fromJson(lines.get(0), type);
+        } catch (RuntimeException exception) {
+            throw new EvidenceException("MALFORMED_" + label.toUpperCase(),
+                    "malformed " + label, exception);
+        }
     }
 
     private static JsonObject parseObject(Path path, String label) throws IOException, EvidenceException {
@@ -650,6 +772,60 @@ public final class MetricsExporter {
         }
     }
 
+    private static void requireJsonNullableString(JsonObject object, String field, String expected)
+            throws EvidenceException {
+        if (!object.has(field)
+                || (expected == null && !object.get(field).isJsonNull())
+                || (expected != null && (object.get(field).isJsonNull()
+                || !expected.equals(object.get(field).getAsString())))) {
+            throw new EvidenceException("IDENTITY_CONFLICT",
+                    field + " does not match endpoint evidence");
+        }
+    }
+
+    private static void validateUnavailableReasons(TransferMetrics metrics)
+            throws EvidenceException {
+        requireReason(metrics, "file_size_bytes", metrics.getFileSizeBytes());
+        requireReason(metrics, "payload_bytes_delivered", metrics.getPayloadBytesDelivered());
+        requireReason(metrics, "transfer_time_sec", metrics.getTransferTimeSec());
+        requireReason(metrics, "throughput_mbps", metrics.getThroughputMbps());
+        requireReason(metrics, "transfer_success", metrics.getTransferSuccess());
+        requireReason(metrics, "integrity_verified", metrics.getIntegrityVerified());
+        requireReason(metrics, "packets_sent", metrics.getPacketsSent());
+        requireReason(metrics, "packets_received", metrics.getPacketsReceived());
+        requireReason(metrics, "packets_dropped", metrics.getPacketsDropped());
+        requireReason(metrics, "retransmissions", metrics.getRetransmissions());
+        requireReason(metrics, "acks_received", metrics.getAcksReceived());
+        requireReason(metrics, "packets_acked", metrics.getPacketsAcked());
+        requireReason(metrics, "packets_timed_out", metrics.getPacketsTimedOut());
+        requireReason(metrics, "packets_duplicated", metrics.getPacketsDuplicated());
+        requireReason(metrics, "retransmission_ratio", metrics.getRetransmissionRatio());
+        requireReason(metrics, "udp_payload_bytes_emitted", metrics.getUdpPayloadBytesEmitted());
+        requireReason(metrics, "protocol_overhead_bytes", metrics.getProtocolOverheadBytes());
+        requireReason(metrics, "protocol_overhead_ratio", metrics.getProtocolOverheadRatio());
+        requireReason(metrics, "rtt_sample_count", metrics.getRttSampleCount());
+        requireReason(metrics, "rtt_mean_ms", metrics.getRttMeanMs());
+        requireReason(metrics, "rtt_p95_ms", metrics.getRttP95Ms());
+        requireReason(metrics, "chunk_size_bytes", metrics.getChunkSizeBytes());
+        requireReason(metrics, "window_bytes_requested", metrics.getWindowBytesRequested());
+        requireReason(metrics, "window_packets", metrics.getWindowPackets());
+        requireReason(metrics, "timeout_ms", metrics.getTimeoutMs());
+        requireReason(metrics, "retry_limit", metrics.getRetryLimit());
+        requireReason(metrics, "packet_loss_rate", metrics.getPacketLossRate());
+        requireReason(metrics, "delay_ms", metrics.getDelayMs());
+        requireReason(metrics, "scenario", metrics.getScenario());
+        requireReason(metrics, "impairment_seed", metrics.getImpairmentSeed());
+    }
+
+    private static void requireReason(TransferMetrics metrics, String field, Object value)
+            throws EvidenceException {
+        String reason = metrics.getUnavailableReasons().get(field);
+        if (value == null && (reason == null || reason.isBlank())) {
+            throw new EvidenceException("MISSING_UNAVAILABLE_REASON",
+                    field + " is unavailable without an explanation");
+        }
+    }
+
     private static UUID parseUuid(String value, String field) throws EvidenceException {
         if (value == null) {
             throw new EvidenceException("MISSING_PROTOCOL_UUID", field + " is unavailable");
@@ -688,6 +864,10 @@ public final class MetricsExporter {
     public record ExportResult(Path outputDirectory, Path summaryPath, Path manifestPath,
                                FinalMetricsSummary summary) {}
 
+    public record ValidatedEndpointEvidence(
+            Path directory, Path endpointPath, Path eventPath,
+            Path statePath, EndpointMetricsRecord record) {}
+
     public static final class EvidenceException extends Exception {
         private final String code;
 
@@ -703,9 +883,6 @@ public final class MetricsExporter {
 
         public String getCode() { return code; }
     }
-
-    private record EndpointEvidence(Path directory, Path endpointPath, Path eventPath,
-                                    Path statePath, EndpointMetricsRecord record) {}
 
     private record EventEvidence(long emittedBytes, long dataAttempts, long retransmissions,
                                  long ackArrivals, long acked, long timeouts,

@@ -42,6 +42,7 @@ class MetricsExporterTest {
                 () -> assertEquals(sender.protocolTransferId(), summary.protocolTransferId()),
                 () -> assertEquals("sender-export-run", summary.senderRunId()),
                 () -> assertEquals("receiver-export-run", summary.receiverRunId()),
+                () -> assertNull(summary.applicationTransferId()),
                 () -> assertEquals(expectedEmission,
                         summary.metrics().getUdpPayloadBytesEmitted()),
                 () -> assertEquals(expectedEmission - 3,
@@ -122,7 +123,46 @@ class MetricsExporterTest {
         assertEquals("EVIDENCE_CONFLICT", failure.getCode());
     }
 
+    @Test
+    void preservesOneTrustedApplicationIdentityOrTheMatchingSharedIdentity(@TempDir Path tempDir)
+            throws Exception {
+        Fixture senderOnly = successfulTransfer(
+                tempDir.resolve("sender-only"), "application-42", null);
+        FinalMetricsSummary senderOnlySummary = MetricsExporter.reconcile(
+                senderOnly.senderDirectory(), senderOnly.receiverDirectory()).summary();
+        assertEquals("application-42", senderOnlySummary.applicationTransferId());
+        assertEquals("application-42",
+                senderOnlySummary.metrics().getApplicationTransferId());
+
+        Fixture matching = successfulTransfer(
+                tempDir.resolve("matching"), "application-43", "application-43");
+        FinalMetricsSummary matchingSummary = MetricsExporter.reconcile(
+                matching.senderDirectory(), matching.receiverDirectory()).summary();
+        assertEquals("application-43", matchingSummary.applicationTransferId());
+        assertEquals("application-43", matchingSummary.metrics().getApplicationTransferId());
+    }
+
+    @Test
+    void rejectsConflictingApplicationIdentities(@TempDir Path tempDir) throws Exception {
+        Fixture conflict = successfulTransfer(
+                tempDir, "sender-application", "receiver-application");
+
+        MetricsExporter.EvidenceException failure = assertThrows(
+                MetricsExporter.EvidenceException.class,
+                () -> MetricsExporter.reconcile(
+                        conflict.senderDirectory(), conflict.receiverDirectory()));
+        assertEquals("EVIDENCE_CONFLICT", failure.getCode());
+        assertTrue(failure.getMessage().contains("application_transfer_id")
+                || failure.getMessage().contains("application transfer ID"));
+        assertFalse(Files.exists(conflict.scopeDirectory().resolve("reconciled")));
+    }
+
     private static Fixture successfulTransfer(Path root) throws Exception {
+        return successfulTransfer(root, null, null);
+    }
+
+    private static Fixture successfulTransfer(Path root, String senderApplicationId,
+                                              String receiverApplicationId) throws Exception {
         Files.createDirectories(root);
         Path input = root.resolve("input.bin");
         Path output = root.resolve("output.bin");
@@ -131,14 +171,24 @@ class MetricsExporterTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (UdpChannel receiverChannel = new UdpChannel(0);
              UdpChannel senderChannel = new UdpChannel()) {
+            TransferContext.Builder receiverContext = TransferContext
+                    .builder(TransferContext.Endpoint.RECEIVER)
+                    .runId("receiver-export-run");
+            if (receiverApplicationId != null) {
+                receiverContext.applicationTransferId(receiverApplicationId);
+            }
+            TransferContext.Builder senderContext = TransferContext
+                    .builder(TransferContext.Endpoint.SENDER)
+                    .runId("sender-export-run");
+            if (senderApplicationId != null) {
+                senderContext.applicationTransferId(senderApplicationId);
+            }
             ReceiverEngine receiver = new ReceiverEngine(receiverChannel, 1_000, 1_000, 50,
-                    TransferContext.builder(TransferContext.Endpoint.RECEIVER)
-                            .runId("receiver-export-run").build());
+                    receiverContext.build());
             SenderEngine sender = new SenderEngine(senderChannel, InetAddress.getLoopbackAddress(),
                     receiverChannel.getLocalPort(), 2, 1, 100, 2,
                     200, 2, 200, 2,
-                    TransferContext.builder(TransferContext.Endpoint.SENDER)
-                            .runId("sender-export-run").build());
+                    senderContext.build());
             EventLogger receiverLogger = receiver.enableEventLogging(logs);
             EventLogger senderLogger = sender.enableEventLogging(logs);
             Future<TransferResult> receiverFuture = executor.submit(

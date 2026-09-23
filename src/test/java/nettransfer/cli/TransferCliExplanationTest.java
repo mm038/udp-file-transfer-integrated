@@ -2,6 +2,7 @@ package nettransfer.cli;
 
 import nettransfer.control.EvidenceSource;
 import nettransfer.control.TransferError;
+import nettransfer.control.TransferMetrics;
 import nettransfer.control.TransferRequest;
 import nettransfer.control.TransferService;
 import nettransfer.control.TransferServiceException;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.PrintWriter;
@@ -281,9 +283,8 @@ class TransferCliExplanationTest {
         String text = command(explain(fixture.evidence().runId()));
 
         assertTrue(text.contains("[REAL] COMPLETED"), text);
-        assertTrue(text.contains("EVIDENCE_UNAVAILABLE: Real recorded measurements are unavailable"));
-        assertTrue(text.contains("Person 2 accepted the complete revised field set"));
-        assertTrue(text.contains("producer records/serialization and shared engine observation/identity integration are pending"));
+        assertTrue(text.contains("EVIDENCE_UNAVAILABLE: SUMMARY_NOT_FOUND:"), text);
+        assertTrue(text.contains("No recorded summary exists for the selected run"), text);
         assertTrue(text.contains("No GPT explanation is generated"));
         assertFalse(text.contains("Evidence [SYNTHETIC]"));
         assertFalse(text.contains("duration_ms=1000"));
@@ -306,12 +307,60 @@ class TransferCliExplanationTest {
 
         String text = command(explain(fixture.evidence().runId()));
 
-        assertTrue(text.contains("EVIDENCE_UNAVAILABLE:"), text);
+        assertTrue(text.contains("EVIDENCE_REJECTED:"), text);
         assertFalse(text.contains("Evidence [SYNTHETIC]"));
         assertFalse(text.contains("duration_ms=1000"));
-        assertEquals(0, providerCalls.get());
+        assertEquals(1, providerCalls.get(), "REAL selection uses typed lookup before provenance rejection");
         assertEquals(0, clientCalls.get());
         assertEquals(0, service.starts);
+    }
+
+    static Stream<Arguments> typedRealEvidenceFailures() {
+        return Stream.of(
+                Arguments.of(SummaryProvider.LookupResult.pending(
+                        "RECEIVER_RECORDING", "Receiver completion recovery is still active"),
+                        ExplanationFlow.Status.EVIDENCE_PENDING),
+                Arguments.of(SummaryProvider.LookupResult.incomplete(
+                        "RUN_NOT_FINAL", "Recording did not reach a finalized boundary"),
+                        ExplanationFlow.Status.EVIDENCE_INCOMPLETE),
+                Arguments.of(SummaryProvider.LookupResult.unavailable(
+                        "SENDER_NOT_FOUND", "No persisted sender run matches the requested identity"),
+                        ExplanationFlow.Status.EVIDENCE_UNAVAILABLE),
+                Arguments.of(SummaryProvider.LookupResult.rejected(
+                        "PROTOCOL_IDENTITY_MISMATCH", "Evidence does not match the selected protocol UUID"),
+                        ExplanationFlow.Status.EVIDENCE_REJECTED));
+    }
+
+    @ParameterizedTest
+    @MethodSource("typedRealEvidenceFailures")
+    void cliPreservesTypedRealEvidenceFailureAndNeverCallsExplanationClient(
+            SummaryProvider.LookupResult lookup, ExplanationFlow.Status expected) {
+        Fixture fixture = SyntheticExplanationFixtures.baseline();
+        service.add(asReal(fixture.selected()));
+        AtomicInteger clientCalls = new AtomicInteger();
+        SummaryProvider provider = new SummaryProvider() {
+            @Override
+            public Optional<RecordedSummary> load(UUID runId) {
+                fail("REAL CLI explanation must use typed lookup");
+                return Optional.empty();
+            }
+
+            @Override
+            public LookupResult lookup(Selection selection) {
+                return lookup;
+            }
+        };
+        use(new ExplanationFlow(provider, request -> {
+            clientCalls.incrementAndGet();
+            return fixture.draft();
+        }));
+
+        String text = command(explain(fixture.evidence().runId()));
+
+        assertTrue(text.contains(expected + ": " + lookup.reasonCode() + ": " + lookup.reason()), text);
+        assertTrue(text.contains("No GPT explanation is generated"), text);
+        assertFalse(text.contains("Evidence [SYNTHETIC]"), text);
+        assertEquals(0, clientCalls.get());
     }
 
     @Test
@@ -437,8 +486,32 @@ class TransferCliExplanationTest {
 
     private static TransferSummary asReal(TransferSummary summary) {
         TransferSnapshot original = summary.finalSnapshot();
+        var lifecycle = original.state() == TransferState.COMPLETED
+                ? nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.SUCCEEDED
+                : nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.FAILED;
+        var context = nettransfer.metrics.TransferContext
+                .builder(nettransfer.metrics.TransferContext.Endpoint.SENDER)
+                .runId(original.runId().toString())
+                .applicationTransferId(original.transferId().toString())
+                .protocolTransferId(original.protocolTransferId())
+                .evidenceSource(nettransfer.metrics.TransferMetrics.EvidenceSource.REAL)
+                .unavailableReason("payload_bytes_delivered", "Real recorded measurements are unavailable")
+                .unavailableReason("throughput_mbps", "Real recorded measurements are unavailable")
+                .build();
+        var authoritative = context.newMetricsBuilder()
+                .captureTimestamp(original.snapshotAt())
+                .finalizationTimestamp(original.snapshotAt())
+                .transferSuccess(original.state() == TransferState.COMPLETED)
+                .failureReason(original.error() == null ? null : original.error().message())
+                .build();
+        var live = new nettransfer.metrics.LiveMetricsSnapshot(context, authoritative,
+                new nettransfer.metrics.MetricsCollector.EndpointEmissionObservations(null, false),
+                lifecycle, original.snapshotAt(), null, null, null,
+                new nettransfer.metrics.MetricsCollector.SenderObservations(
+                        0, false, 0, 0, false, 0), null);
+        var unavailable = TransferMetrics.fromLive(live);
         var real = new TransferSnapshot(original.transferId(), original.runId(), original.protocolTransferId(),
-                original.state(), original.snapshotAt(), EvidenceSource.REAL, original.metrics(), original.error());
+                original.state(), original.snapshotAt(), EvidenceSource.REAL, unavailable, original.error());
         return new TransferSummary(summary.request(), real, summary.integrity(), "Real frozen outcome; metrics unavailable");
     }
 

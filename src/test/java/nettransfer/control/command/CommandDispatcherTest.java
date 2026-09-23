@@ -37,8 +37,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Timeout(10)
 class CommandDispatcherTest {
-    private static final TransferMetrics INITIAL = new TransferMetrics(7L, 0L, 0L, 1, null);
-    private static final TransferMetrics COMPLETE = new TransferMetrics(7L, 7L, 100L, 1, null);
+    private static final TransferMetrics INITIAL = TransferMetrics.synthetic(7L, 0L, 0L);
+    private static final TransferMetrics COMPLETE = TransferMetrics.synthetic(7L, 7L, 100L);
 
     @TempDir
     Path applicationRoot;
@@ -388,8 +388,27 @@ class CommandDispatcherTest {
     private TransferSummary evidence(UUID transferId, UUID runId, UUID protocolId, EvidenceSource sourceType) {
         TransferRequest request = new TransferRequest(UUID.randomUUID(), transferId, "report", "receiver-a", source,
                 configuration.approvedReceivers().get("receiver-a"), new TransferSettings(1024, 1024, 1, 200, 5));
+        Instant capturedAt = Instant.parse("2026-09-20T12:00:00Z");
+        TransferMetrics metrics = COMPLETE;
+        if (sourceType == EvidenceSource.REAL) {
+            var context = nettransfer.metrics.TransferContext
+                    .builder(nettransfer.metrics.TransferContext.Endpoint.SENDER)
+                    .runId(runId.toString())
+                    .applicationTransferId(transferId.toString())
+                    .protocolTransferId(protocolId)
+                    .evidenceSource(nettransfer.metrics.TransferMetrics.EvidenceSource.REAL)
+                    .build();
+            var authoritative = context.newMetricsBuilder()
+                    .captureTimestamp(capturedAt).transferSuccess(true).build();
+            var live = new nettransfer.metrics.LiveMetricsSnapshot(context, authoritative,
+                    new nettransfer.metrics.MetricsCollector.EndpointEmissionObservations(null, false),
+                    nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.SUCCEEDED, capturedAt,
+                    null, null, null,
+                    new nettransfer.metrics.MetricsCollector.SenderObservations(0, false, 0, 0, false, 0), null);
+            metrics = TransferMetrics.fromLive(live);
+        }
         TransferSnapshot snapshot = new TransferSnapshot(transferId, runId, protocolId,
-                TransferState.COMPLETED, Instant.parse("2026-09-20T12:00:00Z"), sourceType, COMPLETE, null);
+                TransferState.COMPLETED, capturedAt, sourceType, metrics, null);
         return new TransferSummary(request, snapshot, IntegrityStatus.VERIFIED, "Synthetic identity test fixture");
     }
 

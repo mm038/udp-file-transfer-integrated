@@ -10,6 +10,9 @@ import nettransfer.control.TransferSnapshot;
 import nettransfer.control.TransferStart;
 import nettransfer.control.TransferState;
 import nettransfer.control.TransferSummary;
+import nettransfer.metrics.LiveMetricsSnapshot;
+import nettransfer.metrics.MetricsCollector;
+import nettransfer.metrics.TransferContext;
 import nettransfer.transfer.TransferResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +41,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static nettransfer.control.TransferError.Code.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -83,7 +87,8 @@ class RealTransferServiceTest {
             assertEquals(NOW, accepted.acceptedAt());
             assertEquals(EvidenceSource.REAL, accepted.evidenceSource());
             assertEquals(TransferState.RUNNING, running.state());
-            assertEquals(7L, running.metrics().fileSizeBytes());
+            assertNull(running.metrics().fileSizeBytes(),
+                    "A legacy test session supplies no engine observation");
             assertNull(running.metrics().uniquePayloadBytesAcked());
             assertNull(running.metrics().elapsedMillis());
             assertNull(running.metrics().totalChunks());
@@ -97,6 +102,48 @@ class RealTransferServiceTest {
             assertEquals(TransferState.RUNNING, running.state(), "Earlier snapshots stay frozen");
             assertEquals(1, session.sendCalls.get());
             assertEquals(1, session.closeCalls.get());
+        }
+    }
+
+    @Test
+    void statusReadsLiveEngineProgressAndRetainsTheTerminalSnapshotBeforeClose() throws Exception {
+        ExecutorService worker = worker();
+        TransferRequest request = request();
+        UUID protocolId = UUID.randomUUID();
+        LiveMetricsSnapshot first = live(request, protocolId,
+                LiveMetricsSnapshot.LifecycleState.TRANSFERRING, NOW.plusMillis(10), 2L, 2L);
+        SnapshotSession session = new SnapshotSession(first);
+        try (RealTransferService service = new RealTransferService(worker, CLOCK, ignored -> session)) {
+            UUID id = service.start(request).transferId();
+            await(session.entered);
+
+            TransferSnapshot running = service.status(id);
+            assertEquals(protocolId, running.protocolTransferId());
+            assertEquals(request.transferId().toString(), running.liveMetrics().context().getRunId());
+            assertEquals(2L, running.liveMetrics().metrics().getPacketsSent());
+            assertEquals(2L, running.metrics().uniquePayloadBytesAcked());
+            assertTrue(running.liveMetrics().isProvisional());
+
+            LiveMetricsSnapshot progressed = live(request, protocolId,
+                    LiveMetricsSnapshot.LifecycleState.TRANSFERRING, NOW.plusMillis(20), 5L, 4L);
+            session.snapshot.set(progressed);
+            TransferSnapshot refreshed = service.status(id);
+            assertSame(progressed, refreshed.liveMetrics());
+            assertEquals(5L, refreshed.liveMetrics().metrics().getPacketsSent());
+            assertEquals(4L, refreshed.metrics().uniquePayloadBytesAcked());
+
+            LiveMetricsSnapshot terminalEvidence = live(request, protocolId,
+                    LiveMetricsSnapshot.LifecycleState.SUCCEEDED, NOW.plusMillis(30), 7L, 7L);
+            session.snapshot.set(terminalEvidence);
+            session.release.countDown();
+            drain(worker);
+
+            TransferSnapshot terminal = service.status(id);
+            assertEquals(TransferState.COMPLETED, terminal.state());
+            assertSame(terminalEvidence, terminal.liveMetrics());
+            assertEquals(Boolean.TRUE, terminal.metrics().authoritativeMetrics().getTransferSuccess());
+            assertTrue(session.closed.get(), "Session closes only after its final snapshot is captured");
+            assertSame(terminal, service.status(id), "Shutdown does not discard final metrics");
         }
     }
 
@@ -142,7 +189,7 @@ class RealTransferServiceTest {
 
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 12})
-    void verifiedSuccessPreservesOnlyAvailableEngineChunkCounts(int chunks) throws Exception {
+    void engineResultChunkCountsDoNotCreateASecondMetricsMeasurement(int chunks) throws Exception {
         ExecutorService worker = worker();
         try (RealTransferService service = new RealTransferService(worker, CLOCK,
                 request -> immediate(TransferResult.success(chunks)))) {
@@ -155,7 +202,7 @@ class RealTransferServiceTest {
             assertSame(request, summary.request());
             assertEquals(TransferState.COMPLETED, terminal.state());
             assertEquals(IntegrityStatus.VERIFIED, summary.integrity());
-            assertEquals(chunks == -1 ? null : Integer.valueOf(chunks), terminal.metrics().totalChunks());
+            assertNull(terminal.metrics().totalChunks());
             assertNull(terminal.metrics().uniquePayloadBytesAcked());
             assertNull(terminal.metrics().elapsedMillis());
             assertNull(terminal.protocolTransferId());
@@ -423,6 +470,73 @@ class RealTransferServiceTest {
         };
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Sender evidence logging failed: disk unavailable",
+            "Sender evidence logging did not reach a finalized terminal state"
+    })
+    void successfulEngineResultCannotHideRequiredEvidenceFailure(String evidenceFailure) throws Exception {
+        ExecutorService worker = worker();
+        try (RealTransferService service = new RealTransferService(worker, CLOCK,
+                request -> new RealTransferService.SenderSession() {
+                    @Override
+                    public TransferResult send() {
+                        return TransferResult.success(-1);
+                    }
+
+                    @Override
+                    public String evidenceFailure() {
+                        return evidenceFailure;
+                    }
+
+                    @Override
+                    public void close() { }
+                })) {
+            UUID id = service.start(request()).transferId();
+            drain(worker);
+
+            TransferSummary summary = service.summary(id);
+            assertEquals(TransferState.FAILED, summary.finalSnapshot().state());
+            assertEquals(IntegrityStatus.UNCONFIRMED, summary.integrity());
+            assertEquals(evidenceFailure, summary.message());
+            assertEquals(TRANSFER_FAILED, summary.finalSnapshot().error().code());
+        }
+    }
+
+    private static LiveMetricsSnapshot live(TransferRequest request, UUID protocolId,
+                                            LiveMetricsSnapshot.LifecycleState lifecycle,
+                                            Instant capturedAt, long packetsSent,
+                                            long acknowledgedBytes) {
+        boolean terminal = lifecycle == LiveMetricsSnapshot.LifecycleState.SUCCEEDED;
+        TransferContext context = TransferContext.builder(TransferContext.Endpoint.SENDER)
+                .runId(request.transferId().toString())
+                .applicationTransferId(request.transferId().toString())
+                .protocolTransferId(protocolId)
+                .fileSizeBytes(7L)
+                .evidenceSource(nettransfer.metrics.TransferMetrics.EvidenceSource.REAL)
+                .build();
+        var metrics = context.newMetricsBuilder()
+                .captureTimestamp(capturedAt)
+                .finalizationTimestamp(terminal ? capturedAt : null)
+                .transferSuccess(terminal ? true : null)
+                .packetsSent(packetsSent)
+                .retransmissions(0L)
+                .acksReceived(Math.min(packetsSent, acknowledgedBytes))
+                .packetsAcked(Math.min(packetsSent, acknowledgedBytes))
+                .packetsTimedOut(0L)
+                .rttSampleCount(1L)
+                .rttMeanMs(1.5)
+                .rttP95Ms(1.5)
+                .unavailableReason("payload_bytes_delivered", "receiver evidence is unavailable")
+                .unavailableReason("throughput_mbps", "reconciliation is unavailable")
+                .build();
+        return new LiveMetricsSnapshot(context, metrics,
+                new MetricsCollector.EndpointEmissionObservations(2048L, terminal), lifecycle,
+                capturedAt, 0.05, acknowledgedBytes, acknowledgedBytes * 8.0 / 50_000.0,
+                new MetricsCollector.SenderObservations(1, true, 0, terminal ? 1 : 0,
+                        terminal, 0), null);
+    }
+
     private static void drain(ExecutorService worker) throws Exception {
         worker.submit(() -> { }).get(2, TimeUnit.SECONDS);
     }
@@ -482,6 +596,38 @@ class RealTransferServiceTest {
                 closeCalls.incrementAndGet();
                 release.countDown();
             }
+        }
+    }
+
+    private static final class SnapshotSession implements RealTransferService.SenderSession {
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+        private final AtomicReference<LiveMetricsSnapshot> snapshot;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private SnapshotSession(LiveMetricsSnapshot snapshot) {
+            this.snapshot = new AtomicReference<>(snapshot);
+        }
+
+        @Override
+        public TransferResult send() {
+            entered.countDown();
+            awaitEvenWhenInterrupted(release);
+            return TransferResult.success(-1);
+        }
+
+        @Override
+        public LiveMetricsSnapshot liveMetricsSnapshot() {
+            if (closed.get()) {
+                throw new IllegalStateException("Snapshot requested after close");
+            }
+            return snapshot.get();
+        }
+
+        @Override
+        public void close() {
+            closed.set(true);
+            release.countDown();
         }
     }
 }

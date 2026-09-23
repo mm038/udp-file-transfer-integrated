@@ -25,9 +25,40 @@ public final class SyntheticExplanationFixtures {
                     new TransferSettings(1024, 4096, 4, 200, 5));
             var error = state == TransferState.FAILED
                     ? new TransferError(TransferError.Code.TRANSFER_FAILED, "SYNTHETIC failure outcome") : null;
+            var lifecycle = state == TransferState.COMPLETED
+                    ? nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.SUCCEEDED
+                    : nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.FAILED;
+            TransferMetrics metrics;
+            if (evidence.source() == EvidenceSource.REAL) {
+                var context = nettransfer.metrics.TransferContext
+                        .builder(nettransfer.metrics.TransferContext.Endpoint.SENDER)
+                        .runId(evidence.runId().toString())
+                        .applicationTransferId(evidence.transferId().toString())
+                        .protocolTransferId(evidence.protocolTransferId())
+                        .evidenceSource(nettransfer.metrics.TransferMetrics.EvidenceSource.REAL)
+                        .unavailableReason("payload_bytes_delivered", "Real recorded measurements are unavailable")
+                        .unavailableReason("throughput_mbps", "Real recorded measurements are unavailable")
+                        .build();
+                var authoritative = context.newMetricsBuilder()
+                        .captureTimestamp(CAPTURED_AT)
+                        .finalizationTimestamp(CAPTURED_AT)
+                        .transferSuccess(state == TransferState.COMPLETED)
+                        .failureReason(error == null ? null : error.message())
+                        .build();
+                var live = new nettransfer.metrics.LiveMetricsSnapshot(context, authoritative,
+                        new nettransfer.metrics.MetricsCollector.EndpointEmissionObservations(null, false),
+                        lifecycle, CAPTURED_AT, null, null, null,
+                        new nettransfer.metrics.MetricsCollector.SenderObservations(
+                                0, false, 0, 0, false, 0), null);
+                metrics = TransferMetrics.fromLive(live);
+            } else {
+                metrics = TransferMetrics.unavailable("No engine measurements in this SYNTHETIC fixture")
+                        .asSyntheticSnapshot(CAPTURED_AT, lifecycle, state == TransferState.COMPLETED,
+                                error == null ? null : error.message());
+            }
             var snapshot = new TransferSnapshot(evidence.transferId(), evidence.runId(),
                     evidence.protocolTransferId(), state, CAPTURED_AT, evidence.source(),
-                    TransferMetrics.unavailable("No engine measurements in this SYNTHETIC fixture"), error);
+                    metrics, error);
             return new TransferSummary(request, snapshot, integrity, "SYNTHETIC test outcome");
         }
 

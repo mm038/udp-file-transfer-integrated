@@ -23,6 +23,7 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -99,11 +100,79 @@ class TransferCliTest {
         assertTrue(status.contains("[SYNTHETIC] RUNNING"));
         assertTrue(status.contains("transfer_id=" + id));
         assertTrue(status.contains("protocol_transfer_id=unavailable"));
-        assertTrue(status.contains("unique_payload_bytes_acked=unavailable"));
-        assertTrue(status.contains("elapsed_ms=unavailable; total_chunks=unavailable"));
+        assertTrue(status.contains("sender_confirmed_acked_payload_bytes=unavailable"));
+        assertTrue(status.contains("live_elapsed_time_sec=unavailable"));
+        assertTrue(status.contains("sender_ack_based_rate_mbps=unavailable"));
         assertTrue(status.contains("Synthetic unavailable fixture"));
         assertFalse(status.contains("100%"));
         assertEquals(TransferState.RUNNING, service.fake.status(id).state());
+    }
+
+    @Test
+    void realStatusRendersLiveSenderMetricsWithExactSemantics() {
+        UUID id = UUID.randomUUID();
+        UUID protocolId = UUID.randomUUID();
+        Instant capturedAt = Instant.parse("2026-09-23T12:00:00Z");
+        var context = nettransfer.metrics.TransferContext
+                .builder(nettransfer.metrics.TransferContext.Endpoint.SENDER)
+                .runId(id.toString())
+                .applicationTransferId(id.toString())
+                .protocolTransferId(protocolId)
+                .fileSizeBytes(100L)
+                .evidenceSource(nettransfer.metrics.TransferMetrics.EvidenceSource.REAL)
+                .unavailableReason("rtt_p95_ms", "fewer RTT samples than required by this fixture")
+                .build();
+        var authoritative = context.newMetricsBuilder()
+                .captureTimestamp(capturedAt)
+                .packetsSent(4L)
+                .retransmissions(0L)
+                .acksReceived(3L)
+                .packetsAcked(2L)
+                .packetsTimedOut(0L)
+                .rttSampleCount(2L)
+                .rttMeanMs(1.25)
+                .rttP95Ms(null)
+                .build();
+        var live = new nettransfer.metrics.LiveMetricsSnapshot(context, authoritative,
+                new nettransfer.metrics.MetricsCollector.EndpointEmissionObservations(777L, false),
+                nettransfer.metrics.LiveMetricsSnapshot.LifecycleState.TRANSFERRING,
+                capturedAt, 2.5, 50L, 0.00016,
+                new nettransfer.metrics.MetricsCollector.SenderObservations(
+                        1, true, 0, 0, false, 0), null);
+        var snapshot = new TransferSnapshot(id, id, protocolId, TransferState.RUNNING,
+                capturedAt, nettransfer.control.EvidenceSource.REAL,
+                TransferMetrics.fromLive(live), null);
+        TransferService fixed = new TransferService() {
+            @Override public TransferStart start(TransferRequest request) { throw new AssertionError(); }
+            @Override public TransferSnapshot status(UUID transferId) {
+                assertEquals(id, transferId);
+                return snapshot;
+            }
+            @Override public TransferSummary summary(UUID transferId) { throw new AssertionError(); }
+        };
+        var rendered = new StringWriter();
+        var realCli = new TransferCli(fixed, configuration, new StringReader(""),
+                new PrintWriter(rendered));
+
+        assertTrue(realCli.handleLine("status " + id));
+        String status = rendered.toString();
+
+        assertTrue(status.contains("protocol_transfer_id=" + protocolId), status);
+        assertTrue(status.contains("engine_lifecycle=TRANSFERRING"), status);
+        assertTrue(status.contains("evidence_scope=SENDER_ENDPOINT_LOCAL"), status);
+        assertTrue(status.contains("evidence_finality=PROVISIONAL"), status);
+        assertTrue(status.contains("sender_confirmed_acked_payload_bytes=50"), status);
+        assertTrue(status.contains("sender_ack_progress_percent=50"), status);
+        assertTrue(status.contains("sender_ack_based_rate_mbps=0.00016"), status);
+        assertTrue(status.contains("packets_sent=4"), status);
+        assertTrue(status.contains("retransmissions=0"), status);
+        assertTrue(status.contains("acks_received=3"), status);
+        assertTrue(status.contains("distinct_packets_acked=2"), status);
+        assertTrue(status.contains("packets_timed_out=0"), status);
+        assertTrue(status.contains("rtt_p95_ms=unavailable; reason=fewer RTT samples"), status);
+        assertTrue(status.contains("endpoint_local_udp_payload_bytes_emitted=777"), status);
+        assertFalse(status.contains("reconciled_throughput"), status);
+        assertFalse(status.contains("receiver-delivered throughput"), status);
     }
 
     @Test
@@ -201,7 +270,7 @@ class TransferCliTest {
         assertTrue(evidence.contains("Selected frozen outcome; question: What happened?"));
         assertTrue(evidence.contains("integrity=VERIFIED"));
         assertTrue(evidence.contains("No GPT explanation is generated"));
-        assertTrue(evidence.contains("not a persisted experiment log"));
+        assertTrue(evidence.contains("explanation evidence is loaded and validated separately"));
 
         command(START);
         assertTrue(command(EXPLAIN).contains("SUMMARY_NOT_READY"));

@@ -1,8 +1,10 @@
 package nettransfer.explanation;
 
 import nettransfer.control.EvidenceSource;
+import nettransfer.metrics.MetricsSchema;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
@@ -95,7 +97,7 @@ class ExplanationFlowTest {
     }
 
     @Test
-    void realSelectionRefusesEvenMatchingSyntheticIdsBeforeConsultingProviderOrClient() {
+    void realSelectionRejectsMatchingSyntheticEvidenceBeforeCallingClient() {
         var fixture = baseline();
         var evidence = fixture.evidence();
         var realEvidence = new RecordedSummary(evidence.runId(), evidence.transferId(), evidence.protocolTransferId(),
@@ -113,12 +115,119 @@ class ExplanationFlowTest {
 
         var result = flow.explain(realSelection, "Explain performance.");
 
-        assertEquals(EVIDENCE_UNAVAILABLE, result.status());
-        assertTrue(result.message().contains("Person 2"));
-        assertTrue(result.message().contains("accepted the complete revised field set"));
-        assertTrue(result.message().contains("shared engine observation/identity integration"));
+        assertEquals(EVIDENCE_REJECTED, result.status());
         assertNull(result.evidence());
         assertNull(result.draft());
+        assertEquals(1, calls.get(), "typed provider lookup occurs, but analysis must not");
+    }
+
+    static Stream<Arguments> unavailableRealStates() {
+        return Stream.of(
+                Arguments.of(SummaryProvider.LookupResult.pending(
+                        "RECEIVER_RECORDING", "Receiver completion recovery is still active"),
+                        EVIDENCE_PENDING),
+                Arguments.of(SummaryProvider.LookupResult.incomplete(
+                        "RUN_NOT_FINAL", "Recording did not reach a final boundary"),
+                        EVIDENCE_INCOMPLETE),
+                Arguments.of(SummaryProvider.LookupResult.unavailable(
+                        "SUMMARY_NOT_FOUND", "No applicable validated evidence exists"),
+                        EVIDENCE_UNAVAILABLE),
+                Arguments.of(SummaryProvider.LookupResult.rejected(
+                        "IDENTITY_MISMATCH", "Recorded identities conflict with the selection"),
+                        EVIDENCE_REJECTED));
+    }
+
+    @ParameterizedTest
+    @MethodSource("unavailableRealStates")
+    void typedRealEvidenceOutcomesNeverReachTheClientOrSyntheticFallback(
+            SummaryProvider.LookupResult lookup, ExplanationFlow.Status expected) {
+        Fixture fixture = realFailureFixture();
+        var lookups = new AtomicInteger();
+        var clientCalls = new AtomicInteger();
+        SummaryProvider provider = new SummaryProvider() {
+            @Override
+            public Optional<RecordedSummary> load(UUID runId) {
+                fail("REAL evidence must use typed lookup, not legacy or synthetic fallback");
+                return Optional.empty();
+            }
+
+            @Override
+            public LookupResult lookup(Selection selection) {
+                lookups.incrementAndGet();
+                return lookup;
+            }
+        };
+        var flow = new ExplanationFlow(provider, request -> {
+            clientCalls.incrementAndGet();
+            return fixture.draft();
+        });
+
+        var result = flow.explain(fixture.selected(), "Explain the selected real transfer.");
+
+        assertEquals(expected, result.status());
+        assertTrue(result.message().contains(lookup.reasonCode()));
+        assertTrue(result.message().contains(lookup.reason()));
+        assertNull(result.evidence());
+        assertNull(result.draft());
+        assertEquals(1, lookups.get());
+        assertEquals(0, clientCalls.get());
+    }
+
+    @Test
+    void realSenderSuccessStillPendingReceiverEvidenceDoesNotReachTheClient() {
+        Fixture senderEvidence = realFailureFixture();
+        Fixture selectedSuccess = new Fixture(senderEvidence.evidence(), senderEvidence.draft(),
+                nettransfer.control.TransferState.COMPLETED,
+                nettransfer.control.IntegrityStatus.VERIFIED);
+        var calls = new AtomicInteger();
+        var lookup = SummaryProvider.LookupResult.pending(
+                "RECEIVER_RECORDING", "Receiver completion recovery is still active");
+        var flow = new ExplanationFlow(typedProvider(lookup), request -> {
+            calls.incrementAndGet();
+            return selectedSuccess.draft();
+        });
+
+        var result = flow.explain(selectedSuccess.selected(), "Explain sender success.");
+
+        assertEquals(EVIDENCE_PENDING, result.status());
+        assertNull(result.evidence());
+        assertEquals(0, calls.get());
+    }
+
+    static Stream<String> invalidRealBoundaries() {
+        return Stream.of("application", "protocol", "schema", "definition");
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidRealBoundaries")
+    void rejectsAvailableRealEvidenceWithConflictingIdentityOrUnsupportedSchema(String mismatch) {
+        Fixture fixture = realFailureFixture();
+        RecordedSummary original = fixture.evidence();
+        var metadata = original.metadata();
+        UUID protocol = mismatch.equals("protocol") ? UUID.randomUUID() : original.protocolTransferId();
+        String definition = mismatch.equals("definition")
+                ? "unsupported-real-definition" : original.definitionVersion();
+        var wrongMetadata = new RecordedSummary.EvidenceMetadata(
+                metadata.scope(), metadata.completeness(), metadata.finalizationStatus(),
+                mismatch.equals("application") ? UUID.randomUUID().toString()
+                        : metadata.applicationTransferId(),
+                metadata.senderRunId(), metadata.receiverRunId(), protocol,
+                mismatch.equals("schema") ? "unsupported-schema" : metadata.metricsSchemaVersion(),
+                definition, metadata.senderTerminalOutcome(), metadata.receiverIntegrityVerified(),
+                metadata.failureCategory(), metadata.failureReason(), metadata.sourceReferences());
+        var wrong = new RecordedSummary(original.runId(), original.transferId(), protocol,
+                original.source(), original.capturedAt(), definition, original.label(),
+                original.fields(), wrongMetadata);
+        var calls = new AtomicInteger();
+        var flow = new ExplanationFlow(typedProvider(SummaryProvider.LookupResult.available(wrong)), request -> {
+            calls.incrementAndGet();
+            return fixture.draft();
+        });
+
+        var result = flow.explain(fixture.selected(), "Explain this real transfer.");
+
+        assertEquals(EVIDENCE_REJECTED, result.status());
+        assertNull(result.evidence());
         assertEquals(0, calls.get());
     }
 
@@ -242,5 +351,38 @@ class ExplanationFlowTest {
         assertEquals(question, client.requests().get(0).question());
         assertSame(fixture.evidence(), result.evidence());
         assertSame(fixture.draft(), result.draft());
+    }
+
+    private static Fixture realFailureFixture() {
+        Fixture fixture = failure();
+        RecordedSummary source = fixture.evidence();
+        var metadata = new RecordedSummary.EvidenceMetadata(
+                RecordedSummary.EvidenceScope.SENDER_FINAL,
+                RecordedSummary.EvidenceCompleteness.COMPLETE,
+                RecordedSummary.FinalizationStatus.FINAL,
+                source.transferId().toString(), source.runId().toString(), null,
+                source.protocolTransferId(), MetricsSchema.ENDPOINT_RECORD_SCHEMA_VERSION,
+                MetricsSchema.METRIC_DEFINITION_VERSION, "FAILED", null,
+                "START_HANDSHAKE_TIMEOUT", "No START_ACK arrived",
+                List.of("standalone/sender/endpoint-sender.json"));
+        var evidence = new RecordedSummary(source.runId(), source.transferId(),
+                source.protocolTransferId(), EvidenceSource.REAL, source.capturedAt(),
+                MetricsSchema.METRIC_DEFINITION_VERSION, "REAL sender-final evidence",
+                source.fields(), metadata);
+        return new Fixture(evidence, fixture.draft(), fixture.state(), fixture.integrity());
+    }
+
+    private static SummaryProvider typedProvider(SummaryProvider.LookupResult lookup) {
+        return new SummaryProvider() {
+            @Override
+            public Optional<RecordedSummary> load(UUID runId) {
+                throw new AssertionError("REAL selection must use typed evidence lookup");
+            }
+
+            @Override
+            public LookupResult lookup(Selection selection) {
+                return lookup;
+            }
+        };
     }
 }

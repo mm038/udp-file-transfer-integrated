@@ -4,11 +4,12 @@ import nettransfer.control.command.TransferConfiguration;
 import nettransfer.control.engine.RealTransferService;
 import nettransfer.explanation.ExplanationClient;
 import nettransfer.explanation.ExplanationFlow;
-import nettransfer.explanation.SummaryProvider;
+import nettransfer.explanation.RealMetricsSummaryProvider;
 import nettransfer.llm.GptClient;
 import nettransfer.llm.GptException;
 import nettransfer.llm.ResponsesGptClient;
 import nettransfer.llm.ResponsesExplanationClient;
+import nettransfer.metrics.PersistedEvidenceRepository;
 
 import java.io.Console;
 import java.io.IOException;
@@ -44,15 +45,17 @@ public final class TransferCliMain {
             usage(output);
             return;
         }
-        try (RealTransferService service = new RealTransferService()) {
+        // The log root comes only from validated Java startup configuration, never GPT output.
+        try (RealRuntime runtime = realRuntime(configuration,
+                explanationFromEnvironment(System.getenv()))) {
+            RealTransferService service = runtime.service();
             Thread shutdown = new Thread(service::close, "transfer-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdown);
             try {
                 new TransferCli(service, configuration,
                         input, output,
                         gptFromEnvironment(System.getenv()),
-                        new ExplanationFlow(SummaryProvider.unavailable(),
-                                explanationFromEnvironment(System.getenv()))).run();
+                        runtime.explanations()).run();
             } catch (IOException e) {
                 output.println("Console input failed; closing transfer resources: " + e.getMessage());
             } finally {
@@ -64,6 +67,8 @@ public final class TransferCliMain {
                     // JVM shutdown has started; the hook and try-with-resources both close safely.
                 }
             }
+        } catch (IOException e) {
+            output.println("Unable to initialize the trusted transfer log: " + e.getMessage());
         }
     }
 
@@ -99,6 +104,32 @@ public final class TransferCliMain {
         return TransferConfiguration.localhost(root, files);
     }
 
+    static Path loggingRoot(TransferConfiguration configuration) {
+        return configuration.applicationRoot().resolve("logs").normalize();
+    }
+
+    /** One Java-owned root is shared by sender logging and validated evidence lookup. */
+    static RealRuntime realRuntime(TransferConfiguration configuration,
+                                   ExplanationClient explanationClient) throws IOException {
+        Path root = loggingRoot(configuration).toAbsolutePath().normalize();
+        var repository = new PersistedEvidenceRepository(root);
+        var explanations = new ExplanationFlow(
+                new RealMetricsSummaryProvider(repository), explanationClient);
+        return new RealRuntime(root, new RealTransferService(root), explanations);
+    }
+
+    record RealRuntime(Path loggingRoot, RealTransferService service,
+                       ExplanationFlow explanations) implements AutoCloseable {
+        RealRuntime {
+            loggingRoot = loggingRoot.toAbsolutePath().normalize();
+        }
+
+        @Override
+        public void close() {
+            service.close();
+        }
+    }
+
     /** Invalid optional GPT configuration must not disable local status/help or transfer commands. */
     static GptClient gptFromEnvironment(Map<String, String> environment) {
         try {
@@ -122,7 +153,9 @@ public final class TransferCliMain {
         output.println("Example: java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . report=data/input/report.txt");
         output.println("Files must pass Java validation under <projectRoot>/data/input. Quote arguments containing spaces.");
         output.println("Receiver ID receiver-a uses 127.0.0.1:9000; start the existing receiver separately.");
-        output.println("Natural language uses OPENAI_API_KEY and optional OPENAI_MODEL (default gpt-5-mini).");
+        output.println("Real sender evidence is written and retrieved under <projectRoot>/logs.");
+        output.println("Status uses live sender observations; ACK-based rate is not reconciled throughput.");
+        output.println("Natural language and AVAILABLE evidence explanations use OPENAI_API_KEY and optional OPENAI_MODEL (default gpt-5-mini).");
         output.println("Optional API deadlines: OPENAI_CONNECT_TIMEOUT_MS and OPENAI_REQUEST_TIMEOUT_MS. Direct commands need no key.");
         output.println("Native consoles use their own encoding; redirected or IDE input/output uses UTF-8.");
         output.flush();

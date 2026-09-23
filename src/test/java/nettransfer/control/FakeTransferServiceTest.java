@@ -26,9 +26,9 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(5)
 class FakeTransferServiceTest {
     private static final Instant START = Instant.parse("2026-09-20T08:00:00Z");
-    private static final TransferMetrics INITIAL = new TransferMetrics(2048L, 0L, 0L, 2, null);
-    private static final TransferMetrics PARTIAL = new TransferMetrics(2048L, 1024L, 50L, 2, null);
-    private static final TransferMetrics COMPLETE = new TransferMetrics(2048L, 2048L, 100L, 2, null);
+    private static final TransferMetrics INITIAL = TransferMetrics.synthetic(2048L, 0L, 0L);
+    private static final TransferMetrics PARTIAL = TransferMetrics.synthetic(2048L, 1024L, 50L);
+    private static final TransferMetrics COMPLETE = TransferMetrics.synthetic(2048L, 2048L, 100L);
 
     @Test
     void startReturnsAcceptanceThroughTheInterfaceWhileTransferRemainsRunning() {

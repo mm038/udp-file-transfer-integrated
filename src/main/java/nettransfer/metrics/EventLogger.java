@@ -42,6 +42,7 @@ public final class EventLogger implements AutoCloseable {
     private final Path runStateFile;
     private final Path endpointMetricsFile;
     private final String localRunId;
+    private final String applicationTransferId;
     private final TransferContext.Endpoint endpoint;
     private final String loggingStartedAt;
     private final LongSupplier monotonicClock;
@@ -59,6 +60,7 @@ public final class EventLogger implements AutoCloseable {
         runStateFile = null;
         endpointMetricsFile = null;
         localRunId = null;
+        applicationTransferId = null;
         endpoint = null;
         loggingStartedAt = null;
         monotonicClock = System::nanoTime;
@@ -76,6 +78,7 @@ public final class EventLogger implements AutoCloseable {
                 context.getEndpoint() == TransferContext.Endpoint.SENDER
                         ? "endpoint-sender.json" : "endpoint-receiver.json");
         localRunId = context.getRunId();
+        applicationTransferId = context.getApplicationTransferId();
         endpoint = context.getEndpoint();
         loggingStartedAt = Instant.now().toString();
         this.writer = writer;
@@ -138,6 +141,8 @@ public final class EventLogger implements AutoCloseable {
         }
         try {
             validateContext(context);
+            boolean protocolIdentityEstablished = latestContext.getProtocolTransferId() == null
+                    && context.getProtocolTransferId() != null;
             latestContext = context;
             TransferEvent.Details value = details == null ? TransferEvent.Details.empty() : details;
             long sequence = nextSequence;
@@ -163,6 +168,12 @@ public final class EventLogger implements AutoCloseable {
             writer.write(JSON.toJson(event));
             writer.write('\n');
             nextSequence++;
+            if (protocolIdentityEstablished) {
+                // Publish only the newly trusted identity while the run remains explicitly RECORDING.
+                // This lets exact repository lookup report PENDING during receiver completion recovery
+                // without treating the unfinished event stream or metrics as finalized evidence.
+                writeState(context, "RECORDING", null, null, false, null);
+            }
         } catch (IOException | RuntimeException exception) {
             markFailure(context, describe(exception));
         }
@@ -239,7 +250,8 @@ public final class EventLogger implements AutoCloseable {
 
     private void validateContext(TransferContext context) {
         Objects.requireNonNull(context, "transfer context is required");
-        if (!localRunId.equals(context.getRunId()) || endpoint != context.getEndpoint()) {
+        if (!localRunId.equals(context.getRunId()) || endpoint != context.getEndpoint()
+                || !Objects.equals(applicationTransferId, context.getApplicationTransferId())) {
             throw new IllegalArgumentException("event context does not belong to this log session");
         }
     }
@@ -306,7 +318,7 @@ public final class EventLogger implements AutoCloseable {
         }
     }
 
-    private static String safePathComponent(String value, String prefix) {
+    static String safePathComponent(String value, String prefix) {
         if (value.matches("[A-Za-z0-9._-]{1,128}") && !value.equals(".") && !value.equals("..")) {
             return value;
         }

@@ -16,6 +16,7 @@ public final class SyntheticSummaryProvider implements SummaryProvider {
         var byRun = new HashMap<UUID, RecordedSummary>();
         for (RecordedSummary fixture : List.copyOf(fixtures)) {
             if (fixture.source() != EvidenceSource.SYNTHETIC
+                    || fixture.metadata().scope() != RecordedSummary.EvidenceScope.SYNTHETIC_FIXTURE
                     || !RecordedSummary.FIXTURE_DEFINITION_VERSION.equals(fixture.definitionVersion())) {
                 throw new IllegalArgumentException("Only explicitly synthetic draft fixtures are supported");
             }

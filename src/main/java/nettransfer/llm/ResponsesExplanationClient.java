@@ -106,6 +106,7 @@ public final class ResponsesExplanationClient implements ExplanationClient {
         result.addProperty("captured_at", summary.capturedAt().toString());
         result.addProperty("definition_version", summary.definitionVersion());
         result.addProperty("label", summary.label());
+        result.add("evidence_metadata", evidenceMetadata(summary.metadata()));
         JsonArray fields = new JsonArray();
         for (RecordedSummary.Field field : summary.fields()) {
             JsonObject item = new JsonObject();
@@ -118,6 +119,28 @@ public final class ResponsesExplanationClient implements ExplanationClient {
             fields.add(item);
         }
         result.add("fields", fields);
+        return result;
+    }
+
+    private static JsonObject evidenceMetadata(RecordedSummary.EvidenceMetadata metadata) {
+        JsonObject result = new JsonObject();
+        result.addProperty("scope", metadata.scope().name());
+        result.addProperty("completeness", metadata.completeness().name());
+        result.addProperty("finalization_status", metadata.finalizationStatus().name());
+        result.addProperty("application_transfer_id", metadata.applicationTransferId());
+        result.addProperty("sender_run_id", metadata.senderRunId());
+        result.addProperty("receiver_run_id", metadata.receiverRunId());
+        result.addProperty("protocol_transfer_id", metadata.protocolTransferId() == null
+                ? null : metadata.protocolTransferId().toString());
+        result.addProperty("metrics_schema_version", metadata.metricsSchemaVersion());
+        result.addProperty("metric_definition_version", metadata.metricDefinitionVersion());
+        result.addProperty("sender_terminal_outcome", metadata.senderTerminalOutcome());
+        result.addProperty("receiver_integrity_verified", metadata.receiverIntegrityVerified());
+        result.addProperty("failure_category", metadata.failureCategory());
+        result.addProperty("failure_reason", metadata.failureReason());
+        JsonArray references = new JsonArray();
+        metadata.sourceReferences().forEach(references::add);
+        result.add("source_references", references);
         return result;
     }
 

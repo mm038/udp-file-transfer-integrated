@@ -21,6 +21,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Reader;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -228,7 +230,7 @@ public final class TransferCli {
             output.println("Selected frozen outcome; question: " + selected.question());
             snapshot(summary.finalSnapshot());
             output.println("integrity=" + summary.integrity() + "; outcome=" + summary.message());
-            output.println("This in-memory outcome is not a persisted experiment log.");
+            output.println("The selected outcome is in-memory; explanation evidence is loaded and validated separately.");
             explanation(explanations.explain(summary, selected.question()));
         } else if (result instanceof DispatchResult.Clarification clarification) {
             output.println("Clarification: " + clarification.question());
@@ -249,6 +251,18 @@ public final class TransferCli {
             output.println("run_id=" + evidence.runId() + "; transfer_id=" + evidence.transferId()
                     + "; protocol_transfer_id=" + value(evidence.protocolTransferId())
                     + "; captured_at=" + evidence.capturedAt());
+            var metadata = evidence.metadata();
+            output.println("evidence_scope=" + metadata.scope()
+                    + "; provenance=" + evidence.source()
+                    + "; completeness=" + metadata.completeness()
+                    + "; finalization=" + metadata.finalizationStatus());
+            output.println("sender_outcome=" + value(metadata.senderTerminalOutcome())
+                    + "; receiver_integrity_verified=" + value(metadata.receiverIntegrityVerified())
+                    + "; receiver_run_id=" + value(metadata.receiverRunId()));
+            if (metadata.failureCategory() != null || metadata.failureReason() != null) {
+                output.println("recorded_failure_category=" + value(metadata.failureCategory())
+                        + "; recorded_failure_reason=" + value(metadata.failureReason()));
+            }
             for (var field : evidence.fields()) {
                 output.println("  " + field.id() + "="
                         + (field.value() == null ? "unavailable" : field.value().toPlainString())
@@ -257,9 +271,19 @@ public final class TransferCli {
                     output.println("    Missing evidence: " + field.unavailableReason());
                 }
             }
-            output.println("Limits: synthetic draft evidence only. Configured impairment is not observed loss;"
-                    + " retransmissions do not establish loss percentage; timeouts do not prove congestion."
-                    + " A single run cannot establish which setting is faster.");
+            if (!metadata.sourceReferences().isEmpty()) {
+                output.println("Validated source references (relative to the trusted logging root):");
+                metadata.sourceReferences().forEach(reference -> output.println("  " + reference));
+            }
+            if (evidence.source() == nettransfer.control.EvidenceSource.REAL) {
+                output.println(metadata.scope() == nettransfer.explanation.RecordedSummary.EvidenceScope.RECONCILED
+                        ? "Limits: reconciled evidence combines validated endpoint observations; the explanation does not independently verify the transfer or establish causation."
+                        : "Limits: sender-final evidence is endpoint-local; ACK progress and ACK-based rate are not receiver delivery or reconciled throughput.");
+            } else {
+                output.println("Limits: synthetic draft evidence only. Configured impairment is not observed loss;"
+                        + " retransmissions do not establish loss percentage; timeouts do not prove congestion."
+                        + " A single run cannot establish which setting is faster.");
+            }
         }
         var draft = result.draft();
         if (draft == null) {
@@ -299,17 +323,92 @@ public final class TransferCli {
         output.println("transfer_id=" + snapshot.transferId() + "; run_id=" + snapshot.runId()
                 + "; protocol_transfer_id=" + value(snapshot.protocolTransferId()));
         TransferMetrics metrics = snapshot.metrics();
-        output.println("file_size_bytes=" + value(metrics.fileSizeBytes())
-                + "; unique_payload_bytes_acked=" + value(metrics.uniquePayloadBytesAcked())
-                + "; elapsed_ms=" + value(metrics.elapsedMillis())
-                + "; total_chunks=" + value(metrics.totalChunks()));
-        output.println("Progress percentage and throughput: unavailable (no integrated measurements).");
-        if (metrics.unavailableReason() != null) {
-            output.println("Unavailable metrics: " + metrics.unavailableReason());
-        }
+        var live = metrics.liveSnapshot();
+        var recorded = metrics.authoritativeMetrics();
+        String finality = live.isProvisional() ? "PROVISIONAL" : "FINAL";
+        output.println("engine_lifecycle=" + live.lifecycleState()
+                + "; evidence_scope=SENDER_ENDPOINT_LOCAL; evidence_finality=" + finality
+                + "; provenance=" + recorded.getEvidenceSource());
+        metric("file_size_bytes", recorded.getFileSizeBytes(), reason(recorded, "file_size_bytes"));
+        metric("sender_confirmed_acked_payload_bytes", live.senderAcknowledgedPayloadBytes(),
+                liveReason(live.senderAcknowledgedPayloadBytes(), live.lifecycleState(),
+                        "sender ACK progress has not been observed"));
+        metric("sender_ack_progress_percent", progressPercent(
+                        live.senderAcknowledgedPayloadBytes(), recorded.getFileSizeBytes()),
+                progressReason(live.senderAcknowledgedPayloadBytes(), recorded.getFileSizeBytes()));
+        metric("live_elapsed_time_sec", live.liveElapsedTimeSec(),
+                liveReason(live.liveElapsedTimeSec(), live.lifecycleState(),
+                        "sender timing has not started"));
+        metric("sender_ack_based_rate_mbps", live.senderAcknowledgedRateMbps(),
+                liveReason(live.senderAcknowledgedRateMbps(), live.lifecycleState(),
+                        "ACK-based sender rate is not available"));
+        metric("packets_sent", recorded.getPacketsSent(), reason(recorded, "packets_sent"));
+        metric("retransmissions", recorded.getRetransmissions(), reason(recorded, "retransmissions"));
+        metric("acks_received", recorded.getAcksReceived(), reason(recorded, "acks_received"));
+        metric("distinct_packets_acked", recorded.getPacketsAcked(), reason(recorded, "packets_acked"));
+        metric("packets_timed_out", recorded.getPacketsTimedOut(), reason(recorded, "packets_timed_out"));
+        metric("rtt_sample_count", recorded.getRttSampleCount(), reason(recorded, "rtt_sample_count"));
+        metric("rtt_mean_ms", recorded.getRttMeanMs(), reason(recorded, "rtt_mean_ms"));
+        metric("rtt_p95_ms", recorded.getRttP95Ms(), reason(recorded, "rtt_p95_ms"));
+        metric("endpoint_local_udp_payload_bytes_emitted",
+                live.endpointEmission().localUdpPayloadBytesEmitted(),
+                live.endpointEmission().localUdpPayloadBytesEmitted() == null
+                        ? "endpoint-local UDP emission observation is unavailable" : null);
+        output.println("endpoint_emission_accounting_complete="
+                + live.endpointEmission().accountingComplete());
         if (snapshot.error() != null) {
             output.println(snapshot.error().code() + ": " + snapshot.error().message());
         }
+    }
+
+    private void metric(String name, Object value, String unavailableReason) {
+        if (value == null) {
+            output.println(name + "=unavailable; reason=" + value(unavailableReason));
+        } else {
+            output.println(name + "=" + metricValue(value));
+        }
+    }
+
+    private static String metricValue(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal.toPlainString();
+        }
+        if (value instanceof Double decimal) {
+            return BigDecimal.valueOf(decimal).stripTrailingZeros().toPlainString();
+        }
+        return value.toString();
+    }
+
+    private static String reason(nettransfer.metrics.TransferMetrics metrics, String field) {
+        return metrics.getUnavailableReasons().getOrDefault(field,
+                "the sender did not record this measurement");
+    }
+
+    private static String liveReason(Object value,
+                                     nettransfer.metrics.LiveMetricsSnapshot.LifecycleState lifecycle,
+                                     String reason) {
+        return value == null ? reason + " in lifecycle " + lifecycle : null;
+    }
+
+    private static BigDecimal progressPercent(Long acknowledgedBytes, Long fileSizeBytes) {
+        if (acknowledgedBytes == null || fileSizeBytes == null || fileSizeBytes == 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(acknowledgedBytes)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(fileSizeBytes), 2, RoundingMode.HALF_UP)
+                .stripTrailingZeros();
+    }
+
+    private static String progressReason(Long acknowledgedBytes, Long fileSizeBytes) {
+        if (acknowledgedBytes == null) {
+            return "sender-confirmed acknowledged bytes are unavailable";
+        }
+        if (fileSizeBytes == null) {
+            return "validated file size is unavailable";
+        }
+        return fileSizeBytes == 0
+                ? "a zero-byte file has no byte-progress denominator" : null;
     }
 
     private static String value(Object value) {
@@ -330,8 +429,9 @@ public final class TransferCli {
                 An explicit UUID can select older history; unknown or ambiguous references are rejected.
                 Use ask to interpret a sentence beginning with a reserved direct command such as status.
                 A direct command clears pending clarification context. Model text never acknowledges execution.
-                Explain checks a selected frozen outcome, then requires a matching recorded summary.
-                Real recorded measurements await producer records and shared engine observation/identity integration.
+                Status shows sender-endpoint live observations; ACK-based rate is not reconciled throughput.
+                Explain checks a selected frozen outcome, then loads matching validated evidence from the trusted log root.
+                REAL evidence may be pending, incomplete, unavailable, or rejected and never falls back to fixtures.
                 Synthetic analysis requires explicit evaluation/test injection; it never supplies real measurements.
                 Exit is refused while a transfer is active. EOF/process shutdown interrupts active work.
                 Start a receiver separately before each transfer; this console does not start one.
