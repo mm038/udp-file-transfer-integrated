@@ -208,9 +208,11 @@ The asynchronous adapter returns an application transfer/run ID promptly while
 the real sender continues on one worker. It allows only one active transfer.
 Status reports `RUNNING`, `COMPLETED`, or `FAILED`. The adapter uses 1,024-byte
 chunks, a default 1,024-byte window, a 200 ms DATA timeout, five retry rounds,
-and a separate 2,000 ms initial response timeout. Window bytes must be
-1,024-1,048,576 and are rounded down to packet slots; timeout milliseconds must
-be 50-5,000.
+and a separate 2,000 ms timeout for each START attempt. The existing five-retry
+policy is preserved, so the approximate maximum START handshake duration is
+`START timeout × (START retry limit + 1)` (about 12 seconds with adapter
+defaults). Window bytes must be 1,024-1,048,576 and are rounded down to packet
+slots; timeout milliseconds must be 50-5,000.
 
 The adapter currently does not attach `Main`'s event logger or bridge the
 engine's live observations. Therefore console protocol UUID, ACK progress,

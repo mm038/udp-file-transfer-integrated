@@ -18,6 +18,7 @@ import nettransfer.net.UdpChannel;
 import nettransfer.protocol.ControlMessage;
 import nettransfer.protocol.MessageType;
 import nettransfer.transfer.ReceiverEngine;
+import nettransfer.transfer.SenderEngine;
 import nettransfer.transfer.TransferResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,9 +29,11 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +45,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static nettransfer.control.TransferError.Code.TRANSFER_FAILED;
 import static org.junit.jupiter.api.Assertions.*;
@@ -70,7 +74,9 @@ class RealTransferServiceIntegrationTest {
         try (GatedStartAckChannel channel = new GatedStartAckChannel();
              RealTransferService service = new RealTransferService(3000)) {
             channel.setReceiveTimeoutMillis(3000);
-            Future<TransferResult> receiver = receiverWorker.submit(() -> new ReceiverEngine(channel).receiveFile(output.toString()));
+            ReceiverEngine receiverEngine = new ReceiverEngine(channel, 3000, 3000, 250, null);
+            Future<TransferResult> receiver = receiverWorker.submit(
+                    () -> receiverEngine.receiveFile(output.toString()));
             TransferConfiguration configuration = new TransferConfiguration(applicationRoot,
                     Map.of("report", Path.of("data/input/report.bin")),
                     Map.of("receiver-a", new InetSocketAddress("127.0.0.1", channel.getLocalPort())));
@@ -93,10 +99,11 @@ class RealTransferServiceIntegrationTest {
             assertNull(status.snapshot().metrics().elapsedMillis());
 
             channel.allowStartAck.countDown();
-            assertTrue(receiver.get(4, TimeUnit.SECONDS).isSuccess());
             TransferSnapshot terminal = awaitTerminal(service, id);
             assertEquals(TransferState.COMPLETED, terminal.state());
             assertEquals(IntegrityStatus.VERIFIED, service.summary(id).integrity());
+            assertTrue(receiver.get(2, TimeUnit.SECONDS).isSuccess());
+            assertTrue(receiverEngine.getMetricsSnapshot().getIntegrityVerified());
             assertEquals(FileHashUtil.sha256Hex(source.toString()), FileHashUtil.sha256Hex(output.toString()));
             assertEquals(Files.size(source), terminal.metrics().fileSizeBytes());
             assertNull(terminal.metrics().totalChunks(), "The engine returns -1, not a measured zero");
@@ -123,9 +130,23 @@ class RealTransferServiceIntegrationTest {
             assertEquals(TransferState.FAILED, terminal.state());
             assertEquals(TRANSFER_FAILED, terminal.error().code());
             assertEquals(IntegrityStatus.UNCONFIRMED, service.summary(id).integrity());
-            assertTrue(service.summary(id).message().contains("Timed out"));
+            assertTrue(service.summary(id).message().contains("START_HANDSHAKE_TIMEOUT"));
             assertNull(terminal.metrics().uniquePayloadBytesAcked());
             assertNull(terminal.metrics().elapsedMillis());
+
+            int startAttempts = 1;
+            peer.setReceiveTimeoutMillis(100);
+            try {
+                while (true) {
+                    ControlMessage retry = message(peer.receive().data());
+                    assertEquals(MessageType.START, retry.getType());
+                    assertEquals(start.getTransferId(), retry.getTransferId());
+                    startAttempts++;
+                }
+            } catch (SocketTimeoutException expected) {
+                // All bounded retries have already been emitted before the terminal result.
+            }
+            assertEquals(SenderEngine.DEFAULT_START_RETRY_LIMIT + 1, startAttempts);
         }
     }
 
@@ -153,22 +174,33 @@ class RealTransferServiceIntegrationTest {
     @Test
     void receiverSuccessWithoutFinishAckStillLeavesSenderFailedAndIntegrityUnconfirmed() throws Exception {
         Path output = applicationRoot.resolve("finish-ack-not-sent.bin");
+        int finishTimeoutMillis = 40;
+        int finishRetryLimit = 2;
+        int receiverCompletionGraceMillis =
+                finishTimeoutMillis * (finishRetryLimit + 1) + 100;
         ExecutorService receiverWorker = Executors.newSingleThreadExecutor();
         try (DroppedFinishAckChannel channel = new DroppedFinishAckChannel();
-             RealTransferService service = new RealTransferService(2000)) {
+             RealTransferService service = serviceWithHandshakeTiming(
+                     500, 2, finishTimeoutMillis, finishRetryLimit)) {
             channel.setReceiveTimeoutMillis(3000);
-            Future<TransferResult> receiver = receiverWorker.submit(() -> new ReceiverEngine(channel).receiveFile(output.toString()));
+            ReceiverEngine receiverEngine = new ReceiverEngine(
+                    channel, 3000, 3000, receiverCompletionGraceMillis, null);
+            Future<TransferResult> receiver = receiverWorker.submit(
+                    () -> receiverEngine.receiveFile(output.toString()));
             UUID id = service.start(request(channel.getLocalPort(), 300)).transferId();
-            assertTrue(receiver.get(4, TimeUnit.SECONDS).isSuccess());
             assertTrue(channel.finishAckDropped.await(1, TimeUnit.SECONDS));
-            assertEquals(FileHashUtil.sha256Hex(source.toString()), FileHashUtil.sha256Hex(output.toString()));
 
             TransferSnapshot terminal = awaitTerminal(service, id);
             assertEquals(TransferState.FAILED, terminal.state());
             assertEquals(IntegrityStatus.UNCONFIRMED, service.summary(id).integrity());
-            assertTrue(service.summary(id).message().contains("Timed out"));
+            assertTrue(service.summary(id).message().contains("FINISH_HANDSHAKE_TIMEOUT"));
             assertNull(terminal.metrics().uniquePayloadBytesAcked());
             assertNull(terminal.metrics().elapsedMillis());
+
+            assertTrue(receiver.get(2, TimeUnit.SECONDS).isSuccess());
+            assertTrue(receiverEngine.getMetricsSnapshot().getIntegrityVerified());
+            assertEquals(finishRetryLimit + 1, channel.finishAcksDropped.get());
+            assertEquals(FileHashUtil.sha256Hex(source.toString()), FileHashUtil.sha256Hex(output.toString()));
         } finally {
             receiverWorker.shutdownNow();
             assertTrue(receiverWorker.awaitTermination(2, TimeUnit.SECONDS));
@@ -178,6 +210,37 @@ class RealTransferServiceIntegrationTest {
     private TransferRequest request(int port, int dataTimeout) {
         return new TransferRequest(UUID.randomUUID(), UUID.randomUUID(), "report", "receiver-a", source,
                 new InetSocketAddress("127.0.0.1", port), new TransferSettings(1024, 4096, 4, dataTimeout, 5));
+    }
+
+    private static RealTransferService serviceWithHandshakeTiming(
+            int startTimeoutMillis, int startRetryLimit,
+            int finishTimeoutMillis, int finishRetryLimit) {
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        return new RealTransferService(worker, Clock.systemUTC(), request -> {
+            UdpChannel channel = new UdpChannel();
+            try {
+                var settings = request.settings();
+                SenderEngine engine = new SenderEngine(channel, request.receiver().getAddress(),
+                        request.receiver().getPort(), settings.chunkSizeBytes(), settings.windowPackets(),
+                        settings.timeoutMillis(), settings.retryLimit(),
+                        startTimeoutMillis, startRetryLimit,
+                        finishTimeoutMillis, finishRetryLimit, null);
+                return new RealTransferService.SenderSession() {
+                    @Override
+                    public TransferResult send() throws IOException {
+                        return engine.sendFile(request.sourcePath().toString());
+                    }
+
+                    @Override
+                    public void close() {
+                        channel.close();
+                    }
+                };
+            } catch (RuntimeException exception) {
+                channel.close();
+                throw exception;
+            }
+        });
     }
 
     private static TransferSnapshot awaitTerminal(RealTransferService service, UUID id) {
@@ -234,12 +297,14 @@ class RealTransferServiceIntegrationTest {
     /** The receiver verifies locally but its final confirmation deliberately never reaches the sender. */
     private static final class DroppedFinishAckChannel extends UdpChannel {
         private final CountDownLatch finishAckDropped = new CountDownLatch(1);
+        private final AtomicInteger finishAcksDropped = new AtomicInteger();
 
         private DroppedFinishAckChannel() throws SocketException { }
 
         @Override
         public void send(byte[] data, InetAddress address, int port) throws IOException {
             if (data.length > 0 && data[0] == '{' && message(data).getType() == MessageType.FINISH_ACK) {
+                finishAcksDropped.incrementAndGet();
                 finishAckDropped.countDown();
                 return;
             }

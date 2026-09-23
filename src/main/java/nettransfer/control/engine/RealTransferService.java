@@ -55,7 +55,11 @@ public final class RealTransferService implements TransferService, AutoCloseable
         this(DEFAULT_INITIAL_RESPONSE_TIMEOUT_MILLIS);
     }
 
-    /** This initial control-response wait is separate from the validated DATA timeout. */
+    /**
+     * This per-attempt START response timeout is separate from the validated DATA timeout.
+     * The sender retains its normal retry limit, so the approximate maximum START handshake
+     * duration is this timeout multiplied by the total number of attempts.
+     */
     public RealTransferService(int initialResponseTimeoutMillis) {
         if (initialResponseTimeoutMillis <= 0) {
             throw new IllegalArgumentException("The initial receive timeout must be finite and positive");
@@ -216,11 +220,11 @@ public final class RealTransferService implements TransferService, AutoCloseable
             throws IOException {
         UdpChannel channel = new UdpChannel();
         try {
-            channel.setReceiveTimeoutMillis(initialTimeoutMillis);
             var settings = request.settings();
             SenderEngine engine = new SenderEngine(channel, request.receiver().getAddress(),
                     request.receiver().getPort(), settings.chunkSizeBytes(), settings.windowPackets(),
-                    settings.timeoutMillis(), settings.retryLimit());
+                    settings.timeoutMillis(), settings.retryLimit(), initialTimeoutMillis,
+                    SenderEngine.DEFAULT_START_RETRY_LIMIT);
             return new SenderSession() {
                 @Override
                 public TransferResult send() throws IOException {
@@ -232,7 +236,7 @@ public final class RealTransferService implements TransferService, AutoCloseable
                     channel.close();
                 }
             };
-        } catch (RuntimeException | IOException e) {
+        } catch (RuntimeException e) {
             channel.close();
             throw e;
         }

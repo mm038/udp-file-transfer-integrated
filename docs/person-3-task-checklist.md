@@ -87,7 +87,7 @@ See the [milestone 3 walkthrough](person-3-milestone-3.md) for the exact files, 
 ## 4. Connect the real engine and a responsive CLI before GPT
 
 - [x] Implement a real `TransferService` adapter around the existing blocking `sendFile` call; run it in a background worker and return from start promptly.
-- [x] Configure a finite initial START-response wait on the existing UDP channel and report timeout honestly; leave handshake retries/idempotency to Person 1's engine work.
+- [x] Configure a finite per-attempt START-response timeout through `SenderEngine`; preserve its retry/idempotency behavior and document the total attempt horizon.
 - [x] Preserve the current cumulative-ACK/Go-Back-N engine behavior; keep reliability logic in Person 1's engine rather than reimplementing it in the adapter.
 - [x] Add a CLI entry point with help, a direct structured-command path through the validator, local status, and the agreed exit behavior.
 - [x] Track the current and last transfer IDs in Java; define how phrases such as "this transfer" and "the last transfer" resolve.

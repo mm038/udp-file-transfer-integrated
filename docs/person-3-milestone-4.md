@@ -8,7 +8,7 @@ This milestone connects the validated commands to Person 1's existing blocking s
 
 1. `start(request)` atomically reserves the single active slot, records a `RUNNING` snapshot and queues the work. It returns an application transfer/run ID without waiting for the transfer.
 2. A named background worker reads source-file size metadata, opens a fresh `UdpChannel`, and constructs the unchanged `SenderEngine` using the validated destination and settings. Source-file size is metadata, not a measurement of bytes delivered.
-3. The channel receives a finite **2,000 ms initial response timeout** before `sendFile` is called. This is an adapter setting, separate from the default **200 ms DATA retransmission timeout**. The existing engine switches to the requested timeout after START_ACK and also uses it while waiting for FINISH_ACK. The adapter does not add control-handshake retries.
+3. The adapter passes a finite **2,000 ms per-attempt START response timeout** to `SenderEngine`. This is separate from the default **200 ms DATA retransmission timeout**. The engine retains its five-retry START policy, so the approximate maximum START handshake duration is `START timeout × (START retry limit + 1)`, or about 12 seconds with adapter defaults. FINISH uses the engine's existing timeout and retry policy; the adapter adds no separate whole-transfer deadline.
 4. When the engine returns, the adapter closes the channel and freezes the outcome. Only `TransferResult.isSuccess()` yields `COMPLETED` with `VERIFIED` integrity. Returned failures, exceptions and missing confirmation yield `FAILED` with `UNCONFIRMED` integrity. Failure text is retained, but not parsed to invent a typed integrity cause.
 5. A new transfer may start after the previous one finishes or fails. Previous snapshots and final summaries remain readable for the lifetime of the service.
 
@@ -31,7 +31,7 @@ The worker never holds the state lock while sending, receiving, hashing or readi
 
 Wall-clock snapshot timestamps describe when a state or metadata observation was recorded. They are not protocol duration and are not used to calculate goodput. Completed runs still have unavailable detailed measurements. A summary is a frozen in-memory outcome, not a persisted experiment report.
 
-The timeout error says that an engine control response was not received; without phase hooks, the adapter cannot reliably identify START versus FINISH from that exception alone. A bounded initial receive does not establish complete recovery or a universal whole-transfer deadline. Peer/UUID validation, control retries and duplicate-control handling remain Person 1's agreed follow-up work.
+The engine's canonical failure text distinguishes `START_HANDSHAKE_TIMEOUT` from `FINISH_HANDSHAKE_TIMEOUT`. A bounded per-attempt START receive does not establish a universal whole-transfer deadline. Peer/UUID validation, control retries, duplicate-control handling, and receiver completion recovery are supplied by the merged reliability implementation.
 
 ## CLI and selection
 
