@@ -61,10 +61,10 @@ class TransferCliExplanationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        Files.createDirectories(root.resolve("data/input"));
-        Files.writeString(root.resolve("data/input/report.txt"), "synthetic test input");
+        Files.createDirectories(root.resolve("storage/outgoing"));
+        Files.writeString(root.resolve("storage/outgoing/report.txt"), "synthetic test input");
         configuration = TransferConfiguration.localhost(root,
-                Map.of("report", Path.of("data/input/report.txt")));
+                Map.of("report", Path.of("storage/outgoing/report.txt")));
         service = new FixtureService();
         output = new StringWriter();
     }
@@ -402,7 +402,8 @@ class TransferCliExplanationTest {
         assertTrue(text.contains("unique_payload_bytes_acked=2048 bytes [OBSERVED]"));
         assertTrue(text.contains("duration_ms=unavailable ms [OBSERVED]"));
         assertTrue(text.contains("Missing evidence: No terminal protocol timing observation supplied."));
-        assertTrue(text.contains("No GPT explanation is generated"));
+        assertTrue(text.contains("No accepted GPT answer is available"));
+        assertTrue(text.contains("an explanation request may have occurred"));
         assertFalse(text.contains("private client internals"));
         assertFalse(text.contains("Observation:"));
         assertEquals(0, service.starts);
@@ -426,6 +427,8 @@ class TransferCliExplanationTest {
             String text = command(explain(fixture.evidence().runId()));
 
             assertTrue(text.contains("EXPLANATION_REJECTED:"), text);
+            assertTrue(text.contains("The returned GPT answer was rejected by Java"), text);
+            assertFalse(text.contains("No GPT explanation is generated"), text);
             assertTrue(text.contains("unique_payload_bytes_acked=2048 bytes [OBSERVED]"));
             assertTrue(text.contains("duration_ms=unavailable ms [OBSERVED]"));
             assertTrue(text.contains("Missing evidence: No terminal protocol timing observation supplied."));

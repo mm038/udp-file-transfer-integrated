@@ -7,9 +7,11 @@ import nettransfer.explanation.ExplanationFlow;
 import nettransfer.explanation.RealMetricsSummaryProvider;
 import nettransfer.llm.GptClient;
 import nettransfer.llm.GptException;
+import nettransfer.llm.EvaluationCapture;
 import nettransfer.llm.ResponsesGptClient;
 import nettransfer.llm.ResponsesExplanationClient;
 import nettransfer.metrics.PersistedEvidenceRepository;
+import nettransfer.net.ImpairmentSettings;
 
 import java.io.Console;
 import java.io.IOException;
@@ -38,24 +40,51 @@ public final class TransferCliMain {
             return;
         }
         TransferConfiguration configuration;
+        ImpairmentSettings impairment;
+        boolean recordEvaluation;
         try {
             configuration = configurationFromArgs(args);
+            impairment = ImpairmentSettings.fromSystemProperties();
+            recordEvaluation = evaluationRecordingEnabled(System.getProperty("nettransfer.evaluation.record"));
         } catch (IllegalArgumentException e) {
             output.println("Invalid startup configuration: " + e.getMessage());
             usage(output);
             return;
         }
         // The log root comes only from validated Java startup configuration, never GPT output.
-        try (RealRuntime runtime = realRuntime(configuration,
-                explanationFromEnvironment(System.getenv()))) {
+        if (impairment.enabled()) {
+            output.println("Simulator " + impairment.scenario() + ": receiver DATA loss="
+                    + impairment.lossPercent() + "%, DATA/ACK delivery delay=" + impairment.delayMillis()
+                    + " ms per direction, seed=" + impairment.seed() + "; START/FINISH unaffected.");
+            output.flush();
+        }
+        EvaluationCapture capture;
+        try {
+            capture = recordEvaluation
+                    ? EvaluationCapture.open(configuration.applicationRoot(), System.getenv("OPENAI_API_KEY"),
+                    warning -> { output.println(warning); output.flush(); })
+                    : EvaluationCapture.disabled();
+        } catch (IOException | RuntimeException e) {
+            output.println("Unable to initialize evaluation recording. Startup stopped before any model request.");
+            output.flush();
+            return;
+        }
+        if (capture.directory() != null) {
+            output.println("Evaluation records: " + capture.directory());
+            output.println("Recorded model responses are untrusted evidence and may include answers rejected by Java.");
+            output.flush();
+        }
+        try (EvaluationCapture recording = capture;
+             RealRuntime runtime = realRuntime(configuration,
+                     explanationFromEnvironment(System.getenv(), recording), impairment, recording)) {
             RealTransferService service = runtime.service();
             Thread shutdown = new Thread(service::close, "transfer-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdown);
             try {
                 new TransferCli(service, configuration,
                         input, output,
-                        gptFromEnvironment(System.getenv()),
-                        runtime.explanations()).run();
+                        gptFromEnvironment(System.getenv(), recording),
+                        runtime.explanations(), recording).run();
             } catch (IOException e) {
                 output.println("Console input failed; closing transfer resources: " + e.getMessage());
             } finally {
@@ -111,11 +140,29 @@ public final class TransferCliMain {
     /** One Java-owned root is shared by sender logging and validated evidence lookup. */
     static RealRuntime realRuntime(TransferConfiguration configuration,
                                    ExplanationClient explanationClient) throws IOException {
+        return realRuntime(configuration, explanationClient, ImpairmentSettings.disabled());
+    }
+
+    static boolean evaluationRecordingEnabled(String value) {
+        if (value == null || value.equals("false")) return false;
+        if (value.equals("true")) return true;
+        throw new IllegalArgumentException("nettransfer.evaluation.record must be true or false");
+    }
+
+    static RealRuntime realRuntime(TransferConfiguration configuration,
+                                   ExplanationClient explanationClient,
+                                   ImpairmentSettings impairment) throws IOException {
+        return realRuntime(configuration, explanationClient, impairment, EvaluationCapture.disabled());
+    }
+
+    static RealRuntime realRuntime(TransferConfiguration configuration,
+                                   ExplanationClient explanationClient,
+                                   ImpairmentSettings impairment, EvaluationCapture capture) throws IOException {
         Path root = loggingRoot(configuration).toAbsolutePath().normalize();
         var repository = new PersistedEvidenceRepository(root);
         var explanations = new ExplanationFlow(
-                new RealMetricsSummaryProvider(repository), explanationClient);
-        return new RealRuntime(root, new RealTransferService(root), explanations);
+                new RealMetricsSummaryProvider(repository), explanationClient, capture);
+        return new RealRuntime(root, new RealTransferService(root, impairment), explanations);
     }
 
     record RealRuntime(Path loggingRoot, RealTransferService service,
@@ -132,8 +179,12 @@ public final class TransferCliMain {
 
     /** Invalid optional GPT configuration must not disable local status/help or transfer commands. */
     static GptClient gptFromEnvironment(Map<String, String> environment) {
+        return gptFromEnvironment(environment, EvaluationCapture.disabled());
+    }
+
+    static GptClient gptFromEnvironment(Map<String, String> environment, EvaluationCapture capture) {
         try {
-            return ResponsesGptClient.fromEnvironment(environment);
+            return ResponsesGptClient.fromEnvironment(environment, capture);
         } catch (GptException e) {
             return request -> { throw e; };
         }
@@ -141,8 +192,13 @@ public final class TransferCliMain {
 
     /** Construction makes no HTTP call; unavailable evidence stops the flow before this client. */
     static ExplanationClient explanationFromEnvironment(Map<String, String> environment) {
+        return explanationFromEnvironment(environment, EvaluationCapture.disabled());
+    }
+
+    static ExplanationClient explanationFromEnvironment(Map<String, String> environment,
+                                                       EvaluationCapture capture) {
         try {
-            return ResponsesExplanationClient.fromEnvironment(environment);
+            return ResponsesExplanationClient.fromEnvironment(environment, capture);
         } catch (GptException e) {
             return request -> { throw e; };
         }
@@ -150,13 +206,18 @@ public final class TransferCliMain {
 
     private static void usage(PrintWriter output) {
         output.println("Usage: java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain <projectRoot> <file-id=relative-path>...");
-        output.println("Example: java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . report=data/input/report.txt");
-        output.println("Files must pass Java validation under <projectRoot>/data/input. Quote arguments containing spaces.");
+        output.println("Example: java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . report=storage/outgoing/report.txt");
+        output.println("Files must pass Java validation under <projectRoot>/storage/outgoing. Quote arguments containing spaces.");
         output.println("Receiver ID receiver-a uses 127.0.0.1:9000; start the existing receiver separately.");
         output.println("Real sender evidence is written and retrieved under <projectRoot>/logs.");
         output.println("Status uses live sender observations; ACK-based rate is not reconciled throughput.");
         output.println("Natural language and AVAILABLE evidence explanations use OPENAI_API_KEY and optional OPENAI_MODEL (default gpt-5-mini).");
         output.println("Optional API deadlines: OPENAI_CONNECT_TIMEOUT_MS and OPENAI_REQUEST_TIMEOUT_MS. Direct commands need no key.");
+        output.println("Opt-in evidence recording: -Dnettransfer.evaluation.record=true (unique target/evaluation/llm-... folder).");
+        output.println("Optional simulator JVM settings (use the same values on receiver and console):");
+        output.println("  -Dnettransfer.impairment.enabled=true -Dnettransfer.impairment.lossPercent=2");
+        output.println("  -Dnettransfer.impairment.delayMs=0 -Dnettransfer.impairment.seed=42 -Dnettransfer.impairment.scenario=loss-2");
+        output.println("Simulator: receiver DATA loss; fixed DATA and ACK delivery delay per direction. START/FINISH pass normally.");
         output.println("Native consoles use their own encoding; redirected or IDE input/output uses UTF-8.");
         output.flush();
     }

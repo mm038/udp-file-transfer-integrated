@@ -24,6 +24,7 @@ import nettransfer.metrics.TransferMetrics;
 import nettransfer.net.UdpChannel;
 import nettransfer.protocol.ControlMessage;
 import nettransfer.protocol.MessageType;
+import nettransfer.protocol.PacketDecoder;
 import nettransfer.transfer.ReceiverEngine;
 import nettransfer.transfer.SenderEngine;
 import nettransfer.transfer.TransferResult;
@@ -44,6 +45,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -171,8 +173,10 @@ class RealMetricsSummaryProviderTest {
         assertNull(summary.metadata().receiverIntegrityVerified());
         assertNull(field(summary, "payload_bytes_delivered").value());
         assertNotNull(field(summary, "payload_bytes_delivered").unavailableReason());
-        assertTrue(field(summary, "throughput_mbps").definition().contains("ACK-based"));
-        assertTrue(field(summary, "throughput_mbps").definition().contains("not receiver-delivered"));
+        assertNull(field(summary, "throughput_mbps").value());
+        assertNotNull(field(summary, "throughput_mbps").unavailableReason());
+        assertTrue(field(summary, "throughput_mbps").definition().contains("receiver delivery is required"));
+        assertTrue(field(summary, "throughput_mbps").definition().contains("Live ACK-based rate is a separate field"));
         assertEquals(3, summary.metadata().sourceReferences().size());
     }
 
@@ -287,6 +291,112 @@ class RealMetricsSummaryProviderTest {
     }
 
     @Test
+    void successfulTransferWithNoEligibleRttSamplesReachesExplanationClient() throws Exception {
+        Fixture fixture = successfulTransferWithoutRttSamples(tempDir.resolve("flow-no-rtt"));
+        RealMetricsSummaryProvider provider = provider(fixture);
+
+        SummaryProvider.LookupResult lookup = provider.lookup(fixture.selection());
+
+        assertEquals(AVAILABLE, lookup.status(), lookup::toString);
+        RecordedSummary evidence = lookup.summary();
+        assertEquals(RecordedSummary.EvidenceScope.RECONCILED, evidence.metadata().scope());
+        assertEquals("SUCCESS", evidence.metadata().senderTerminalOutcome());
+        assertEquals(Boolean.TRUE, evidence.metadata().receiverIntegrityVerified());
+        assertEquals(BigDecimal.ZERO, field(evidence, "rtt_sample_count").value());
+        AtomicReference<ExplanationRequest> captured = new AtomicReference<>();
+        ExplanationFlow flow = new ExplanationFlow(provider, request -> {
+            captured.set(request);
+            return draft(request.evidence());
+        });
+
+        ExplanationFlow.Result result = flow.explain(
+                selected(evidence, TransferState.COMPLETED, IntegrityStatus.VERIFIED),
+                "Explain this completed transfer, including unavailable RTT.");
+
+        assertEquals(ExplanationFlow.Status.EXPLAINED, result.status(), result::message);
+        assertNotNull(captured.get());
+        for (String id : java.util.List.of("rtt_mean_ms", "rtt_p95_ms")) {
+            RecordedSummary.Field metric = field(captured.get().evidence(), id);
+            assertNull(metric.value(), id);
+            assertEquals("RTT sampling produced no eligible samples",
+                    fixture.senderMetrics().getUnavailableReasons().get(id), id);
+            assertEquals(fixture.senderMetrics().getUnavailableReasons().get(id),
+                    metric.unavailableReason(), id);
+        }
+        TransferMetrics reconciled = new PersistedEvidenceRepository(fixture.logsRoot())
+                .lookup(fixture.applicationId().toString()).evidence().reconciled().summary().metrics();
+        for (String id : java.util.List.of("payload_bytes_delivered", "throughput_mbps",
+                "udp_payload_bytes_emitted", "protocol_overhead_bytes", "protocol_overhead_ratio")) {
+            assertNotNull(field(captured.get().evidence(), id).value(), id);
+            assertNull(field(captured.get().evidence(), id).unavailableReason(), id);
+            assertFalse(reconciled.getUnavailableReasons().containsKey(id), id);
+        }
+    }
+
+    @Test
+    void missingOriginalRttReasonStillRejectsEvidence() throws Exception {
+        Fixture fixture = successfulTransferWithoutRttSamples(tempDir.resolve("missing-rtt-reason"));
+        Path endpointPath = fixture.senderDirectory().resolve("endpoint-sender.json");
+        JsonObject endpoint = object(endpointPath);
+        endpoint.getAsJsonObject("metrics").getAsJsonObject("unavailable_reasons")
+                .remove("rtt_mean_ms");
+        Files.writeString(endpointPath, endpoint + "\n");
+
+        SummaryProvider.LookupResult result = provider(fixture).lookup(fixture.selection());
+
+        assertState(REJECTED, result);
+        assertEquals("VALIDATION_MISSING_UNAVAILABLE_REASON", result.reasonCode());
+    }
+
+    @Test
+    void reconciledFailureBeforeDataPreservesUninitializedMetricsAndReceiverReasons() throws Exception {
+        Fixture fixture = startAckLoss(tempDir.resolve("flow-no-data"));
+        RealMetricsSummaryProvider provider = provider(fixture);
+
+        SummaryProvider.LookupResult lookup = provider.lookup(fixture.selection());
+
+        assertEquals(AVAILABLE, lookup.status(), lookup::toString);
+        RecordedSummary evidence = lookup.summary();
+        assertEquals(RecordedSummary.EvidenceScope.RECONCILED, evidence.metadata().scope());
+        assertEquals("FAILED", evidence.metadata().senderTerminalOutcome());
+        assertEquals("START_HANDSHAKE_TIMEOUT", evidence.metadata().failureCategory());
+        assertNull(evidence.metadata().receiverIntegrityVerified());
+        assertEquals(BigDecimal.ZERO, field(evidence, "packets_sent").value());
+        assertEquals(BigDecimal.ZERO, field(evidence, "payload_bytes_delivered").value());
+        AtomicReference<ExplanationRequest> captured = new AtomicReference<>();
+        ExplanationFlow flow = new ExplanationFlow(provider, request -> {
+            captured.set(request);
+            return draft(request.evidence());
+        });
+
+        ExplanationFlow.Result result = flow.explain(
+                selected(evidence, TransferState.FAILED, IntegrityStatus.UNCONFIRMED),
+                "Explain why this transfer failed before sending DATA.");
+
+        assertEquals(ExplanationFlow.Status.EXPLAINED, result.status(), result::message);
+        assertNotNull(captured.get());
+        for (String id : java.util.List.of("rtt_sample_count", "rtt_mean_ms", "rtt_p95_ms")) {
+            RecordedSummary.Field metric = field(captured.get().evidence(), id);
+            assertNull(metric.value(), id);
+            assertEquals(fixture.senderMetrics().getUnavailableReasons().get(id),
+                    metric.unavailableReason(), id);
+        }
+        RecordedSummary.Field ratio = field(captured.get().evidence(), "retransmission_ratio");
+        assertNull(ratio.value());
+        assertNotNull(ratio.unavailableReason());
+        assertFalse(ratio.unavailableReason().isBlank());
+        var persisted = new PersistedEvidenceRepository(fixture.logsRoot())
+                .lookup(fixture.applicationId().toString()).evidence();
+        TransferMetrics receiver = persisted.receiver().record().metrics();
+        TransferMetrics reconciled = persisted.reconciled().summary().metrics();
+        assertNull(reconciled.getIntegrityVerified());
+        assertEquals("no completed SHA-256 comparison was observed",
+                receiver.getUnavailableReasons().get("integrity_verified"));
+        assertEquals(receiver.getUnavailableReasons().get("integrity_verified"),
+                reconciled.getUnavailableReasons().get("integrity_verified"));
+    }
+
+    @Test
     void validatedSenderFinalFailureReachesClientWithMissingReceiverValuesIntact() throws Exception {
         Fixture fixture = startTimeout(tempDir.resolve("flow-sender-failure"));
         RealMetricsSummaryProvider provider = provider(fixture);
@@ -369,7 +479,7 @@ class RealMetricsSummaryProviderTest {
             }
         };
         var configuration = TransferConfiguration.localhost(tempDir,
-                Map.of("fixture", Path.of("data/input/fixture.bin")));
+                Map.of("fixture", Path.of("storage/outgoing/fixture.bin")));
         var output = new StringWriter();
         var cli = new TransferCli(service, configuration, new StringReader(""),
                 new PrintWriter(output), request -> new CommandProposal.Unsupported("unused"), flow);
@@ -406,7 +516,7 @@ class RealMetricsSummaryProviderTest {
             @Override public TransferSummary summary(UUID transferId) { return selected; }
         };
         var configuration = TransferConfiguration.localhost(tempDir,
-                Map.of("fixture", Path.of("data/input/fixture.bin")));
+                Map.of("fixture", Path.of("storage/outgoing/fixture.bin")));
         var output = new StringWriter();
         var cli = new TransferCli(service, configuration, new StringReader(""),
                 new PrintWriter(output), request -> new CommandProposal.Unsupported("unused"), flow);
@@ -419,7 +529,7 @@ class RealMetricsSummaryProviderTest {
         assertTrue(text.contains("Evidence [REAL]"), text);
         assertTrue(text.contains("evidence_scope=RECONCILED"), text);
         assertTrue(text.contains("Validated source references"), text);
-        assertTrue(text.contains("No GPT explanation is generated"), text);
+        assertTrue(text.contains("No accepted GPT answer is available"), text);
         assertFalse(text.contains("private client failure"), text);
     }
 
@@ -478,6 +588,81 @@ class RealMetricsSummaryProviderTest {
         }
     }
 
+    private Fixture successfulTransferWithoutRttSamples(Path root) throws Exception {
+        Files.createDirectories(root);
+        Path logs = root.resolve("logs");
+        byte[] payload = {1, 2, 3, 4};
+        Path input = Files.write(root.resolve("input.bin"), payload);
+        Path output = root.resolve("output.bin");
+        UUID applicationId = UUID.randomUUID();
+        String receiverRun = "receiver-" + UUID.randomUUID();
+        CountDownLatch retransmitted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (UdpChannel receiverChannel = new AckAfterRetransmissionChannel(retransmitted);
+             UdpChannel senderChannel = new RetransmissionSignallingChannel(retransmitted)) {
+            ReceiverEngine receiver = new ReceiverEngine(receiverChannel, 1_000, 1_000, 60,
+                    TransferContext.builder(TransferContext.Endpoint.RECEIVER)
+                            .runId(receiverRun).build());
+            SenderEngine sender = new SenderEngine(senderChannel, InetAddress.getLoopbackAddress(),
+                    receiverChannel.getLocalPort(), 4, 1, 200, 3, 200, 3, 200, 3,
+                    TransferContext.builder(TransferContext.Endpoint.SENDER)
+                            .runId(applicationId.toString())
+                            .applicationTransferId(applicationId.toString())
+                            .fileAttribution("approved-file:fixture").build());
+            var receiverLogger = receiver.enableEventLogging(logs);
+            var senderLogger = sender.enableEventLogging(logs);
+            Future<TransferResult> receiverFuture = executor.submit(
+                    () -> receiver.receiveFile(output.toString()));
+            assertTrue(sender.sendFile(input.toString()).isSuccess());
+            assertTrue(receiverFuture.get(3, TimeUnit.SECONDS).isSuccess());
+            assertArrayEquals(payload, Files.readAllBytes(output));
+            TransferMetrics metrics = sender.getMetricsSnapshot();
+            assertTrue(metrics.getRetransmissions() > 0);
+            assertEquals(0L, metrics.getRttSampleCount());
+            assertNull(metrics.getRttMeanMs());
+            assertNull(metrics.getRttP95Ms());
+            return new Fixture(logs, applicationId, receiverRun, sender.getProtocolTransferId(),
+                    senderLogger.getRunDirectory(), receiverLogger.getRunDirectory(), metrics);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private Fixture startAckLoss(Path root) throws Exception {
+        Files.createDirectories(root);
+        Path logs = root.resolve("logs");
+        Path input = Files.write(root.resolve("input.bin"), new byte[]{1, 2, 3, 4});
+        Path output = root.resolve("output.bin");
+        UUID applicationId = UUID.randomUUID();
+        String receiverRun = "receiver-" + UUID.randomUUID();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (UdpChannel receiverChannel = new UdpChannel(0);
+             UdpChannel senderChannel = new DroppedControlMessageChannel(MessageType.START_ACK)) {
+            ReceiverEngine receiver = new ReceiverEngine(receiverChannel, 1_000, 600, 60,
+                    TransferContext.builder(TransferContext.Endpoint.RECEIVER)
+                            .runId(receiverRun).build());
+            SenderEngine sender = new SenderEngine(senderChannel, InetAddress.getLoopbackAddress(),
+                    receiverChannel.getLocalPort(), 4, 1, 200, 2, 100, 1, 200, 2,
+                    TransferContext.builder(TransferContext.Endpoint.SENDER)
+                            .runId(applicationId.toString())
+                            .applicationTransferId(applicationId.toString())
+                            .fileAttribution("approved-file:fixture").build());
+            var receiverLogger = receiver.enableEventLogging(logs);
+            var senderLogger = sender.enableEventLogging(logs);
+            Future<TransferResult> receiverFuture = executor.submit(
+                    () -> receiver.receiveFile(output.toString()));
+            assertFalse(sender.sendFile(input.toString()).isSuccess());
+            assertFalse(receiverFuture.get(3, TimeUnit.SECONDS).isSuccess());
+            assertEquals(0L, sender.getMetricsSnapshot().getPacketsSent());
+            assertNull(sender.getMetricsSnapshot().getRttSampleCount());
+            return new Fixture(logs, applicationId, receiverRun, sender.getProtocolTransferId(),
+                    senderLogger.getRunDirectory(), receiverLogger.getRunDirectory(),
+                    sender.getMetricsSnapshot());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private Fixture finishAckLoss(Path root) throws Exception {
         Files.createDirectories(root);
         Path logs = root.resolve("logs");
@@ -487,7 +672,7 @@ class RealMetricsSummaryProviderTest {
         String receiverRun = "receiver-" + UUID.randomUUID();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (UdpChannel receiverChannel = new UdpChannel(0);
-             DroppedFinishAckChannel senderChannel = new DroppedFinishAckChannel()) {
+             UdpChannel senderChannel = new DroppedControlMessageChannel(MessageType.FINISH_ACK)) {
             ReceiverEngine receiver = new ReceiverEngine(receiverChannel, 1_000, 1_000, 100,
                     TransferContext.builder(TransferContext.Endpoint.RECEIVER)
                             .runId(receiverRun).build());
@@ -618,8 +803,12 @@ class RealMetricsSummaryProviderTest {
         }
     }
 
-    private static final class DroppedFinishAckChannel extends UdpChannel {
-        private DroppedFinishAckChannel() throws SocketException { }
+    private static final class DroppedControlMessageChannel extends UdpChannel {
+        private final MessageType droppedType;
+
+        private DroppedControlMessageChannel(MessageType droppedType) throws SocketException {
+            this.droppedType = droppedType;
+        }
 
         @Override
         public ReceivedDatagram receive() throws IOException {
@@ -631,8 +820,57 @@ class RealMetricsSummaryProviderTest {
                 }
                 ControlMessage message = ControlMessage.fromJson(
                         new String(data, StandardCharsets.UTF_8));
-                if (message.getType() != MessageType.FINISH_ACK) {
+                if (message.getType() != droppedType) {
                     return datagram;
+                }
+            }
+        }
+    }
+
+    /** Delays the first DATA ACK until an actual retransmission makes its RTT ambiguous. */
+    private static final class AckAfterRetransmissionChannel extends UdpChannel {
+        private final CountDownLatch retransmitted;
+        private boolean firstAck = true;
+
+        private AckAfterRetransmissionChannel(CountDownLatch retransmitted) throws SocketException {
+            super(0);
+            this.retransmitted = retransmitted;
+        }
+
+        @Override
+        public void send(byte[] data, InetAddress address, int port) throws IOException {
+            if (firstAck && data.length > 0 && data[0] != '{'
+                    && PacketDecoder.decode(data).getType() == MessageType.ACK) {
+                firstAck = false;
+                try {
+                    if (!retransmitted.await(3, TimeUnit.SECONDS)) {
+                        throw new IOException("Test sender did not retransmit DATA before ACK release");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while waiting for test retransmission", exception);
+                }
+            }
+            super.send(data, address, port);
+        }
+    }
+
+    private static final class RetransmissionSignallingChannel extends UdpChannel {
+        private final CountDownLatch retransmitted;
+        private int dataEmissions;
+
+        private RetransmissionSignallingChannel(CountDownLatch retransmitted) throws SocketException {
+            this.retransmitted = retransmitted;
+        }
+
+        @Override
+        public void send(byte[] data, InetAddress address, int port) throws IOException {
+            super.send(data, address, port);
+            if (data.length > 0 && data[0] != '{') {
+                var packet = PacketDecoder.decode(data);
+                if (packet.getType() == MessageType.DATA && packet.getSeqNum() == 0
+                        && ++dataEmissions == 2) {
+                    retransmitted.countDown();
                 }
             }
         }

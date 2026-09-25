@@ -72,17 +72,17 @@ public final class CommandValidator {
     private Path resolveReadableFile(Path configuredFile) {
         Path candidate = configuration.applicationRoot().resolve(configuredFile).normalize();
         if (!candidate.startsWith(configuration.inputRoot())) {
-            throw new TransferServiceException(FILE_UNAVAILABLE, "Approved source must be under data/input");
+            throw new TransferServiceException(FILE_UNAVAILABLE, "Approved source must be under storage/outgoing");
         }
         try {
             Path realApplicationRoot = configuration.applicationRoot().toRealPath();
             Path realInputRoot = configuration.inputRoot().toRealPath();
             Path realFile = candidate.toRealPath();
             // Keep the designated input root fixed; file links may only remain inside it.
-            if (!realInputRoot.equals(realApplicationRoot.resolve("data/input")) || !realFile.startsWith(realInputRoot)
+            if (!realInputRoot.equals(realApplicationRoot.resolve("storage/outgoing")) || !realFile.startsWith(realInputRoot)
                     || !Files.isRegularFile(realFile) || !Files.isReadable(realFile)) {
                 throw new TransferServiceException(FILE_UNAVAILABLE,
-                        "Approved source must be a readable regular file within data/input, including resolved links");
+                        "Approved source must be a readable regular file within storage/outgoing, including resolved links");
             }
             return realFile;
         } catch (IOException | SecurityException e) {

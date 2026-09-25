@@ -82,11 +82,11 @@ class TransferCliMainTest {
     @Test
     void trustedStartupArgumentsCreateExplicitFileCatalogAndFixedReceiver() {
         var config = TransferCliMain.configurationFromArgs(new String[]{root.toString(),
-                "report=data/input/report.txt", "other=data/input/other file.txt"});
+                "report=storage/outgoing/report.txt", "other=storage/outgoing/other file.txt"});
 
         assertEquals(root, config.applicationRoot());
-        assertEquals(Path.of("data/input/report.txt"), config.approvedFiles().get("report"));
-        assertEquals(Path.of("data/input/other file.txt"), config.approvedFiles().get("other"));
+        assertEquals(Path.of("storage/outgoing/report.txt"), config.approvedFiles().get("report"));
+        assertEquals(Path.of("storage/outgoing/other file.txt"), config.approvedFiles().get("other"));
         assertEquals("127.0.0.1", config.approvedReceivers().get("receiver-a").getAddress().getHostAddress());
         assertEquals(9000, config.approvedReceivers().get("receiver-a").getPort());
         assertEquals(root.resolve("logs"), TransferCliMain.loggingRoot(config));
@@ -95,7 +95,7 @@ class TransferCliMainTest {
     @Test
     void runtimeUsesOneTrustedLoggingRootForSenderAndEvidencePipeline() throws Exception {
         var config = TransferCliMain.configurationFromArgs(new String[]{root.toString(),
-                "report=data/input/report.txt"});
+                "report=storage/outgoing/report.txt"});
 
         try (var runtime = TransferCliMain.realRuntime(config, request -> {
             throw new AssertionError("Runtime construction must not invoke the explanation client");
@@ -109,7 +109,7 @@ class TransferCliMainTest {
 
     @Test
     void relativeRootIsNormalizedToAnAbsolutePath() {
-        var config = TransferCliMain.configurationFromArgs(new String[]{".", "report=data/input/report.txt"});
+        var config = TransferCliMain.configurationFromArgs(new String[]{".", "report=storage/outgoing/report.txt"});
 
         assertEquals(Path.of(".").toAbsolutePath().normalize(), config.applicationRoot());
     }
@@ -117,10 +117,10 @@ class TransferCliMainTest {
     @Test
     void invalidAndDuplicateEntriesAreRejectedInsteadOfSilentlyReplacingFiles() {
         for (String[] args : new String[][]{
-                {}, {root.toString()}, {root.toString(), "report"}, {root.toString(), "=data/input/a"},
-                {root.toString(), "report="}, {root.toString(), " =data/input/a"},
-                {root.toString(), "report=data/input/a", "report=data/input/b"},
-                {root.toString(), "report=" + root.resolve("data/input/a")}}) {
+                {}, {root.toString()}, {root.toString(), "report"}, {root.toString(), "=storage/outgoing/a"},
+                {root.toString(), "report="}, {root.toString(), " =storage/outgoing/a"},
+                {root.toString(), "report=storage/outgoing/a", "report=storage/outgoing/b"},
+                {root.toString(), "report=" + root.resolve("storage/outgoing/a")}}) {
             assertThrows(IllegalArgumentException.class, () -> TransferCliMain.configurationFromArgs(args));
         }
     }

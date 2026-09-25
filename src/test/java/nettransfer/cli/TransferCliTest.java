@@ -48,10 +48,10 @@ class TransferCliTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        Path source = root.resolve("data/input/report.txt");
+        Path source = root.resolve("storage/outgoing/report.txt");
         Files.createDirectories(source.getParent());
         Files.writeString(source, "report\n");
-        configuration = TransferConfiguration.localhost(root, Map.of("report", Path.of("data/input/report.txt")));
+        configuration = TransferConfiguration.localhost(root, Map.of("report", Path.of("storage/outgoing/report.txt")));
         useScenario(FakeTransferService.Scenario.success(List.of(UNKNOWN), UNKNOWN));
     }
 
@@ -62,7 +62,7 @@ class TransferCliTest {
 
         assertTrue(help.contains("start_transfer"));
         assertTrue(help.contains("null IDs select the current active run, or last terminal run"));
-        assertTrue(catalog.contains("report = data"));
+        assertTrue(catalog.contains("report = " + Path.of("storage/outgoing/report.txt")));
         assertTrue(catalog.contains("receiver-a = 127.0.0.1:9000"));
         assertEquals(0, service.starts);
     }

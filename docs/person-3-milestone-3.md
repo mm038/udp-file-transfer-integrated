@@ -2,6 +2,11 @@
 
 This milestone adds a Java library boundary between proposed commands and the existing `TransferService`. Its tests use the simulated service. The UDP engine and its entry point are unchanged; the real adapter and responsive CLI were added separately in [milestone 4](person-3-milestone-4.md). Person 2's logging and metrics are still pending.
 
+This is a historical milestone record. The configuration example and source-path
+rule below now use the later approved `storage/outgoing` console root. Earlier
+saved evaluations used `data/input`; their original evidence is unchanged. See
+the [current walkthrough](live-demo-walkthrough.md) for the matching build and commands.
+
 The flow is **proposal -> strict parser -> Java validator -> dispatcher -> service**. A proposal is not permission to execute: malformed arguments, unapproved resources and invalid settings produce a typed result before `service.start` is called.
 
 ## What changed and where
@@ -27,7 +32,7 @@ Java configures the available resources, for example:
 ```java
 TransferConfiguration configuration = TransferConfiguration.localhost(
         projectRoot, // explicit absolute Path, selected by Java
-        Map.of("report", Path.of("data/input/report.txt")));
+        Map.of("report", Path.of("storage/outgoing/report.txt")));
 ```
 
 This does not create the file or approve arbitrary model-supplied paths. The file must already exist and pass validation when a start is requested. The application root does not depend on a model-generated path or the location of a source file.
@@ -45,7 +50,7 @@ For tool name `start_transfer`, the argument JSON might be:
 
 1. The parser requires exactly these four fields and checks their types. `null` for a setting means use Java's default; an omitted field is a schema error.
 2. The validator resolves `report` and `receiver-a` through the configured maps. IDs are exact and case-sensitive; it never guesses from a similar filename or accepts an arbitrary destination.
-3. The source must be a readable regular file under the application's `data/input`. Java resolves real paths: source links may stay within that directory, but cannot escape it. Redirecting `data/input` itself is rejected, even if its target is another directory inside the project.
+3. The source must be a readable regular file under the application's `storage/outgoing`. Java resolves real paths: source links may stay within that directory, but cannot escape it. Redirecting `storage/outgoing` itself is rejected, even if its target is another directory inside the project.
 4. Java applies the 200 ms timeout default, uses 1,024-byte chunks, and converts 65,536 bytes to 64 packet slots. The retry policy remains five consecutive Go-Back-N rounds without progress.
 5. The dispatcher records the caller-generated request UUID and calls `service.start` once. The service atomically reserves the single active slot. The returned application transfer/run IDs remain distinct from the unknown wire ID.
 

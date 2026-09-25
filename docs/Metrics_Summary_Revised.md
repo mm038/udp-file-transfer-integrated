@@ -1,12 +1,18 @@
 # Metrics Summary - Revised Set and Integration Notes
 
-**Current status, September 21:** the complete metric/supporting-field set is accepted. Independent milestone 7 synthetic checks are complete and committed; [milestone 8](person-3-milestone-8.md) adds explicit live-evaluation infrastructure, with formal live review pending. References below to paused milestone 7 describe this document's original revision. Actual producer files and shared engine/metrics observation/identity integration remain pending; Person 2 may instrument engine event points alongside Stage 11, coordinated with Person 1.
+**Current integrated status, September 25, 2026:** the complete metric/supporting-field set below remains accepted. In the `udp-file-transfer-integrated` working tree, branch `feature/metrics-llm-integration` based on `985b1a8`, instrumentation, endpoint logs, reconciliation, the REAL provider, explanation flow and verified local repairs are implemented. Sections 3–6 evaluation and prose review are complete. Controlled loss/delay has passing evidence; Person 4's experiment matrix and the team's final deliverables remain pending. The active prompts are `commands-v2` / `explanations-v6`, using `gpt-5-mini`. Use [LOGGING.md](../LOGGING.md) for implemented measurement definitions and artifact formats and the [README evaluation checkpoint](../README.md#current-evaluation-checkpoint) for current evidence and limits. [Stage 7 acceptance](stage-7-acceptance.md) preserves the earlier implementation-acceptance context; it is distinct from evaluation-plan Section 7.
 
-Prepared September 20, 2026 from Person 2's `Metrics_Summary.docx` and the assignment PDF (minimum metrics on pages 2-3). The user has confirmed that Person 2 agrees to the complete metric set, including the supporting fields below. Use this accepted scope for future implementation. Definitions marked proposed and open integration notes distinguish design choices from instructor requirements and identify details to settle in the concrete producer handoff; they do not reopen field-scope approval. Person 2 owns measurement and logging, which have not yet been supplied. No milestone 7 implementation is started by this document.
+The original A explanation remains `REQUIRES_CORRECTION`; its transfer measurements are valid, but its combined-emission attribution and unsupported claims prevent a semantic PASS. Preserve that original output and failed review; reviewer corrections must never be presented as original model output. B–D passed the assignment-minimum prose review with minor presentation caveats. D is transfer `FAILED` with integrity `UNCONFIRMED`; live integrity `FAILED` is `NOT EXERCISED`. Use verified measurements for comparisons and reviewed explanations for presentation.
 
-## 1. What needs to be added
+Prepared September 20, 2026 in the original repository from Person 2's `Metrics_Summary.docx` and the assignment PDF (minimum metrics on pages 2-3). The user confirmed agreement to the complete metric set, including the supporting fields below. The accepted inventory and synthetic example are preserved as the design record. Definitions marked proposed and the historical integration questions distinguish team choices from instructor requirements; they do not reopen field-scope approval or mean the integrated producer is absent.
 
-The original summary covers several required metrics, but does not explicitly supply all the assignment's minimum evidence. These are the additional measurements:
+**Reading the historical definitions against the implementation:** current `packets_received` counts DATA arrivals passing the receiver's peer/transfer, exact framing, sequence-range, CRC and expected-payload-length checks, including valid duplicates and out-of-order arrivals. Attributable validation failures are recorded separately; unrelated or unidentifiable traffic can be ignored. The earlier null-RTT/retransmission-ratio reason propagation defect is [repaired and validated](../target/evaluation/metrics-null-reasons-20260925-131319-640/validation.json); missing RTT is still never zero.
+
+The original outgoing-simulator proposal in the tables is superseded by [receive-side impairment](../LOGGING.md#controlled-impairment-observations): `RECEIVE_DELIVERY_V1` drops eligible DATA at the receiver and delays receiver DATA and sender ACK delivery by a fixed configured amount per direction. Dropped datagrams have already been emitted, so their UDP bytes remain counted. `packets_dropped` comes from active receiver observation, not sender-only evidence or inferred network loss. Configuration is endpoint-scoped, and null values must not be filled with invented zeroes. Saved [impairment validation](../target/evaluation/controlled-impairment-20260925-134232-676/validation.json) and [framing validation](../target/evaluation/data-framing-20260925-161314-533/validation.json) supersede the earlier open defect claims. The design tables and synthetic example below remain historical, not current measurement results.
+
+## 1. Additions identified in the original proposal
+
+The original summary covered several required metrics but did not explicitly supply all the assignment's minimum evidence. These were the additional measurements accepted for the revised scope:
 
 | Additional measurement | Proposed field(s) | Why the existing fields do not cover it |
 | --- | --- | --- |
@@ -28,7 +34,9 @@ Also record the full transfer configuration and impairment scenario. The assignm
 - Counters below are DATA-specific unless explicitly stated otherwise. Do not mix DATA, ACK and control traffic into one counter; retain endpoint/message-type details in the event log.
 - A proposed summary contains one finalized record per terminal run, including failures, in JSONL. CSV is also possible after agreeing types and null representation. The event log is a separate artifact.
 
-## 3. Revised field definitions
+## 3. Accepted field inventory and original working definitions
+
+The tables preserve the September 20 design record. The current implemented counting points, formulas and nullable configuration semantics are documented in [LOGGING.md](../LOGGING.md); use that implementation reference when interpreting actual records.
 
 ### Identity, outcome, time and payload
 
@@ -94,7 +102,7 @@ The overhead formula above is our working UDP-payload accounting boundary, not a
 
 Agree a summary or linked manifest carrying `schema_version`, `metric_definition_version`, `evidence_source` (REAL/SYNTHETIC), capture/finalization time, and a verified mapping between `experiment_id`, application `run_id`/`transfer_id`, and nullable `protocol_transfer_id`. Also retain endpoint attribution, file identity, integrity evidence source, and per-field `unavailable_reasons`. These are integration recommendations, not exact fields demanded by the assignment.
 
-Agreement on the metric set does not establish those actual mappings or supply measured evidence. Real explanations stay unavailable until a reviewed provider can verify them. Non-numeric identity/outcome metadata must not be disguised as numerical measurements.
+Agreement on the metric set alone does not establish identity mappings or supply measured evidence. The integrated REAL provider now verifies available records and their associations; explanations remain unavailable when the evidence fails those checks. Non-numeric identity/outcome metadata must not be disguised as numerical measurements.
 
 ## 4. Packet-count clarification
 
@@ -110,7 +118,7 @@ At a smaller chunk size, more original chunks are required. ACKs and START/FINIS
 
 The original illustration had 1,200 DATA attempts including 120 resends, leaving 1,080 original attempts. Those cannot carry the stated 10 MiB under the current payload limit. If preserving 120 resends and a successful 10 MiB transfer with 1,024-byte chunks, the DATA-attempt count would instead be 10,360. That arithmetic alone does not determine arrivals, drops, duplicate packets, timeouts, ACK counts or duration; those require actual evidence or a fully specified synthetic scenario.
 
-This is a correction to an explicitly illustrative example, not a finding that Person 2's unimplemented measurements are wrong. The revised complete example below uses a simpler lossless baseline instead of asserting unobserved details of the original loss scenario.
+This corrected an explicitly illustrative example before integration; it is not a finding that Person 2's measurements are wrong. The revised complete example below uses a simpler lossless baseline instead of asserting unobserved details of the original loss scenario.
 
 ## 5. Corrected illustrative summary
 
@@ -166,10 +174,12 @@ Overhead and RTT stay null because this illustration supplies neither complete e
 
 For this illustration, `10485760 * 8 / 8.5 / 1000000 = 9.868950588... Mbps`, shown as 9.87. The equality between ACK arrivals and acknowledged DATA chunks is specific to this baseline; it is not a general cumulative-ACK formula.
 
-## 6. Separate event log and discussion decisions
+## 6. Historical event-log and integration discussion
+
+The integrated implementation now writes endpoint event JSONL, run-state files and endpoint records, then reconciles compatible terminal evidence. [LOGGING.md](../LOGGING.md) documents their actual schema, paths, versions and finalization rules. The paragraphs below preserve the earlier discussion requirements.
 
 Keep raw packet/event evidence in CSV or JSONL, distinct from the per-transfer summary. Proposed event fields include verified run/transfer identity, endpoint/direction, monotonic event time and separate UTC timestamp, event type, message type, sequence/cumulative ACK, attempt number, payload/encoded-byte sizes, and validation/acceptance/drop/timeout outcome. These are suggested event fields, not an already agreed logger schema.
 
-Before real integration, obtain the concrete identity association, event/serialization format, output location, version and finalization rules. Check that the producer implements the working timing, counter, failure, overhead, RTT and null definitions above; document any implementation-driven changes rather than silently changing meanings. Confirm which measurements come from the summary and which have linked supporting logs. Metric calculation and logging remain Person 2's work with Person 1's agreed hooks; Person 3 consumes and explains verified evidence. The accepted field set does not need to be approved again.
+The pre-integration handoff requested concrete identity association, event/serialization format, output location, version and finalization rules. Completed Sections 3–6 checked the implemented timing, counters, failure, overhead, RTT and null meanings against saved evidence. Person 4 must retain those definitions and distinguish summary measurements from their supporting logs in the pending experiments/report. The accepted field set does not need to be approved again.
 
-Milestone 7 remains paused. No source code, tests, engine hooks, logger, metrics calculator or real-summary adapter has been changed for this revision.
+At the original September 20 revision, milestone 7 was paused and this document changed no source code, tests, engine hooks, logger, metrics calculator or real-summary adapter. That historical pause is not the current integrated implementation status. This September 25 documentation correction runs no new tests, transfer or API evaluation.

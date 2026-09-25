@@ -5,6 +5,7 @@ import nettransfer.control.IntegrityStatus;
 import nettransfer.control.TransferState;
 import nettransfer.control.TransferSummary;
 import nettransfer.metrics.MetricsSchema;
+import nettransfer.llm.EvaluationCapture;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -17,10 +18,16 @@ import java.util.stream.Collectors;
 public final class ExplanationFlow {
     private final SummaryProvider summaries;
     private final ExplanationClient client;
+    private final EvaluationCapture capture;
 
     public ExplanationFlow(SummaryProvider summaries, ExplanationClient client) {
+        this(summaries, client, EvaluationCapture.disabled());
+    }
+
+    public ExplanationFlow(SummaryProvider summaries, ExplanationClient client, EvaluationCapture capture) {
         this.summaries = Objects.requireNonNull(summaries, "summaries");
         this.client = Objects.requireNonNull(client, "client");
+        this.capture = Objects.requireNonNull(capture, "capture");
     }
 
     /** Safe production default until application wiring supplies a trusted REAL evidence provider. */
@@ -41,6 +48,16 @@ public final class ExplanationFlow {
 
     public Result explain(TransferSummary selected, String question) {
         Objects.requireNonNull(selected, "selected");
+        UUID requestId = UUID.randomUUID();
+        capture.beginInvocation(requestId);
+        Result decision = explain(requestId, selected, question);
+        var snapshot = selected.finalSnapshot();
+        capture.decision(requestId, "explanation", decision.status().name(),
+                snapshot.runId(), snapshot.transferId(), decision.message());
+        return decision;
+    }
+
+    private Result explain(UUID requestId, TransferSummary selected, String question) {
         var snapshot = selected.finalSnapshot();
         EvidenceLoad loaded = snapshot.evidenceSource() == EvidenceSource.REAL
                 ? loadReal(selected) : loadSynthetic(selected);
@@ -54,7 +71,7 @@ public final class ExplanationFlow {
         }
         ExplanationDraft draft;
         try {
-            draft = client.explain(new ExplanationRequest(UUID.randomUUID(), question, evidence,
+            draft = client.explain(new ExplanationRequest(requestId, question, evidence,
                     snapshot.state(), selected.integrity()));
         } catch (RuntimeException exception) {
             return result(Status.EXPLANATION_UNAVAILABLE,

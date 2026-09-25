@@ -50,12 +50,12 @@ class CommandDispatcherTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        source = applicationRoot.resolve("data/input/report.txt");
+        source = applicationRoot.resolve("storage/outgoing/report.txt");
         Files.createDirectories(source.getParent());
         Files.writeString(source, "report\n");
         configuration = TransferConfiguration.localhost(applicationRoot, Map.of(
-                "report", Path.of("data/input/report.txt"),
-                "missing", Path.of("data/input/missing.txt")));
+                "report", Path.of("storage/outgoing/report.txt"),
+                "missing", Path.of("storage/outgoing/missing.txt")));
         useScenario(FakeTransferService.Scenario.success(List.of(INITIAL), COMPLETE));
     }
 
@@ -102,7 +102,7 @@ class CommandDispatcherTest {
                 new InvalidCase(call("start_transfer", "{}"), INVALID_COMMAND),
                 new InvalidCase(call("start_transfer", """
                         {"file_id":"report","receiver_id":"receiver-a","window_bytes":null,
-                         "timeout_ms":null,"path":"data/input/other.txt"}
+                         "timeout_ms":null,"path":"storage/outgoing/other.txt"}
                         """), INVALID_COMMAND),
                 new InvalidCase(start("unknown", "receiver-a", "null", "null"), UNKNOWN_FILE),
                 new InvalidCase(start("report", "unknown", "null", "null"), UNKNOWN_RECEIVER),

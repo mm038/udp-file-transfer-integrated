@@ -107,6 +107,7 @@ class ResponsesExplanationClientTest {
         assertEquals(input.requestId().toString(), captured.requestId());
         JsonObject body = JsonParser.parseString(captured.body()).getAsJsonObject();
         assertEquals("test-model", body.get("model").getAsString());
+        assertEquals(32768, body.get("max_output_tokens").getAsInt());
         assertFalse(body.get("store").getAsBoolean());
         assertEquals(0, body.getAsJsonArray("tools").size());
         assertEquals("none", body.get("tool_choice").getAsString());
@@ -117,7 +118,7 @@ class ResponsesExplanationClientTest {
         assertFalse(captured.body().contains(KEY));
         assertFalse(captured.body().contains("synthetic-input-not-created.bin"));
         assertFalse(captured.body().contains("127.0.0.1"));
-        assertFalse(captured.body().contains("data/input/"));
+        assertFalse(captured.body().contains("storage/outgoing/"));
 
         JsonObject metadata = body.getAsJsonObject("metadata");
         assertEquals(input.requestId().toString(), metadata.get("request_id").getAsString());
@@ -184,6 +185,65 @@ class ResponsesExplanationClientTest {
                 .getAsJsonObject("items");
         assertStrictObject(reference, Set.of("field_id", "value", "unit"));
         assertEquals("number", reference.getAsJsonObject("properties").getAsJsonObject("value").get("type").getAsString());
+    }
+
+    @Test
+    void responseSchemaBoundsProseAndListsBeforeJavaValidatesTheReturnedDraft() {
+        Fixture fixture = baseline();
+        respond(200, response(message(draftJson(fixture.draft()).toString())));
+        assertEquals(fixture.draft(), client(1).explain(request(fixture)));
+
+        JsonObject body = JsonParser.parseString(requests.get(0).body()).getAsJsonObject();
+        JsonObject properties = body.getAsJsonObject("text").getAsJsonObject("format")
+                .getAsJsonObject("schema").getAsJsonObject("properties");
+        JsonObject observations = properties.getAsJsonObject("observations");
+        JsonObject observation = observations.getAsJsonObject("items").getAsJsonObject("properties");
+        JsonObject references = observation.getAsJsonObject("references");
+        JsonObject hypotheses = properties.getAsJsonObject("hypotheses");
+        JsonObject limitations = properties.getAsJsonObject("limitations");
+        for (JsonObject array : List.of(observations, references, hypotheses, limitations)) {
+            assertEquals(array == references || array == limitations ? 1 : 0, array.get("minItems").getAsInt());
+            assertEquals(array == hypotheses ? 4 : 8, array.get("maxItems").getAsInt());
+        }
+        for (JsonObject text : List.of(observation.getAsJsonObject("text"),
+                hypotheses.getAsJsonObject("items"), limitations.getAsJsonObject("items"))) {
+            String pattern = text.get("pattern").getAsString();
+            assertTrue("x".repeat(600).matches(pattern));
+            assertTrue("Evidence line one.\nEvidence line two.".matches(pattern));
+            assertFalse("".matches(pattern));
+            assertFalse("x".repeat(601).matches(pattern), "Long source-reference lists must not grow without a schema bound");
+        }
+    }
+
+    @Test
+    void projectsExplicitImpairmentScopeAndSeedAsMetadataWithoutTools() {
+        Fixture fixture = baseline();
+        var source = fixture.evidence();
+        var old = source.metadata();
+        String affected = "Receiver incoming DATA: loss then fixed delay; sender incoming DATA ACK: fixed delay. Controls unaffected.";
+        var metadata = new RecordedSummary.EvidenceMetadata(old.scope(), old.completeness(),
+                old.finalizationStatus(), old.applicationTransferId(), old.senderRunId(), old.receiverRunId(),
+                old.protocolTransferId(), old.metricsSchemaVersion(), old.metricDefinitionVersion(),
+                old.senderTerminalOutcome(), old.receiverIntegrityVerified(), old.failureCategory(),
+                old.failureReason(), old.sourceReferences(),
+                new RecordedSummary.ImpairmentMetadata("RECEIVE_DELIVERY_V1", "loss-2", 37L, affected, true));
+        var evidence = new RecordedSummary(source.runId(), source.transferId(), source.protocolTransferId(),
+                source.source(), source.capturedAt(), source.definitionVersion(), source.label(), source.fields(), metadata);
+        respond(200, response(message(draftJson(fixture.draft()).toString())));
+
+        client(1).explain(new ExplanationRequest(UUID.randomUUID(), "Explain the observed recovery.",
+                evidence, fixture.state(), fixture.integrity()));
+
+        JsonObject body = JsonParser.parseString(requests.get(0).body()).getAsJsonObject();
+        JsonObject actual = inputData(body).getAsJsonObject("evidence")
+                .getAsJsonObject("evidence_metadata").getAsJsonObject("impairment");
+        assertEquals("RECEIVE_DELIVERY_V1", actual.get("mechanism").getAsString());
+        assertEquals("loss-2", actual.get("scenario").getAsString());
+        assertEquals(37L, actual.get("seed").getAsLong());
+        assertEquals(affected, actual.get("affected_traffic").getAsString());
+        assertTrue(actual.get("receiver_drop_observations_available").getAsBoolean());
+        assertEquals(0, body.getAsJsonArray("tools").size());
+        assertEquals(ExplanationRequest.INSTRUCTIONS, body.get("instructions").getAsString());
     }
 
     @Test
@@ -321,9 +381,15 @@ class ResponsesExplanationClientTest {
         JsonObject body = JsonParser.parseString(response(message(draftJson(baseline().draft()).toString()))).getAsJsonObject();
         JsonObject target = level.equals("response") ? body : body.getAsJsonArray("output").get(0).getAsJsonObject();
         target.addProperty("status", "incomplete");
+        if (level.equals("response")) {
+            JsonObject details = new JsonObject();
+            details.addProperty("reason", "max_output_tokens");
+            body.add("incomplete_details", details);
+        }
         respond(200, body.toString());
 
-        assertError(GptException.Code.INCOMPLETE, client(1));
+        assertError(GptException.Code.INCOMPLETE, client(2));
+        assertEquals(1, requests.size(), "A token-limit failure must not trigger another paid attempt automatically");
     }
 
     @ParameterizedTest

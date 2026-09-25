@@ -52,6 +52,7 @@ public final class TransferMetrics {
     private final Double delayMs;
     private final String scenario;
     private final Long impairmentSeed;
+    private final String impairmentMechanism;
 
     private final String schemaVersion;
     private final String metricDefinitionVersion;
@@ -102,6 +103,7 @@ public final class TransferMetrics {
         delayMs = nonNegativeFinite("delayMs", builder.delayMs);
         scenario = builder.scenario;
         impairmentSeed = builder.impairmentSeed;
+        impairmentMechanism = builder.impairmentMechanism;
 
         schemaVersion = builder.schemaVersion;
         metricDefinitionVersion = builder.metricDefinitionVersion;
@@ -140,6 +142,7 @@ public final class TransferMetrics {
                 .windowPackets(windowPackets).timeoutMs(timeoutMs).retryLimit(retryLimit)
                 .packetLossRate(packetLossRate).delayMs(delayMs).scenario(scenario)
                 .impairmentSeed(impairmentSeed).schemaVersion(schemaVersion)
+                .impairmentMechanism(impairmentMechanism)
                 .metricDefinitionVersion(metricDefinitionVersion).runId(runId)
                 .applicationTransferId(applicationTransferId)
                 .protocolTransferId(protocolTransferId).evidenceSource(evidenceSource)
@@ -220,6 +223,7 @@ public final class TransferMetrics {
     public Double getDelayMs() { return delayMs; }
     public String getScenario() { return scenario; }
     public Long getImpairmentSeed() { return impairmentSeed; }
+    public String getImpairmentMechanism() { return impairmentMechanism; }
     public String getSchemaVersion() { return schemaVersion; }
     public String getMetricDefinitionVersion() { return metricDefinitionVersion; }
     public String getRunId() { return runId; }
@@ -266,6 +270,7 @@ public final class TransferMetrics {
         private Double delayMs;
         private String scenario;
         private Long impairmentSeed;
+        private String impairmentMechanism;
         private String schemaVersion;
         private String metricDefinitionVersion;
         private String runId;
@@ -313,6 +318,7 @@ public final class TransferMetrics {
         public Builder delayMs(Double value) { delayMs = value; return this; }
         public Builder scenario(String value) { scenario = value; return this; }
         public Builder impairmentSeed(Long value) { impairmentSeed = value; return this; }
+        public Builder impairmentMechanism(String value) { impairmentMechanism = value; return this; }
         public Builder schemaVersion(String value) { schemaVersion = value; return this; }
         public Builder metricDefinitionVersion(String value) { metricDefinitionVersion = value; return this; }
         public Builder runId(String value) { runId = value; return this; }
@@ -332,6 +338,11 @@ public final class TransferMetrics {
 
         public Builder unavailableReason(String field, String reason) {
             unavailableReasons.put(field, reason);
+            return this;
+        }
+
+        public Builder clearUnavailableReason(String field) {
+            unavailableReasons.remove(field);
             return this;
         }
 

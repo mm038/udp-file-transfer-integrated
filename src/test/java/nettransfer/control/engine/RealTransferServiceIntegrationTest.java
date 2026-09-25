@@ -62,7 +62,7 @@ class RealTransferServiceIntegrationTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        source = applicationRoot.resolve("data/input/report.bin");
+        source = applicationRoot.resolve("storage/outgoing/report.bin");
         Files.createDirectories(source.getParent());
         byte[] bytes = new byte[8197];
         new Random(42).nextBytes(bytes);
@@ -82,7 +82,7 @@ class RealTransferServiceIntegrationTest {
             Future<TransferResult> receiver = receiverWorker.submit(
                     () -> receiverEngine.receiveFile(output.toString()));
             TransferConfiguration configuration = new TransferConfiguration(applicationRoot,
-                    Map.of("report", Path.of("data/input/report.bin")),
+                    Map.of("report", Path.of("storage/outgoing/report.bin")),
                     Map.of("receiver-a", new InetSocketAddress("127.0.0.1", channel.getLocalPort())));
             CommandDispatcher dispatcher = new CommandDispatcher(new CommandParser(), new CommandValidator(configuration), service);
 

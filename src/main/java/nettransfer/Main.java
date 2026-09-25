@@ -1,6 +1,7 @@
 package nettransfer;
 
 import nettransfer.net.UdpChannel;
+import nettransfer.net.ImpairmentSettings;
 import nettransfer.metrics.TransferConfiguration;
 import nettransfer.metrics.TransferContext;
 import nettransfer.metrics.EventLogger;
@@ -35,6 +36,9 @@ public class Main {
         if (args.length != 3) {
             System.out.println("Usage: Main <sender|receiver> <port> <filename>");
             System.out.println("   or: Main reconcile <sender-run-dir> <receiver-run-dir>");
+            System.out.println("Simulator JVM settings (identical on both endpoints):");
+            System.out.println("  -Dnettransfer.impairment.enabled=true -Dnettransfer.impairment.lossPercent=2");
+            System.out.println("  -Dnettransfer.impairment.delayMs=0 -Dnettransfer.impairment.seed=42 -Dnettransfer.impairment.scenario=loss-2");
             return;
         }
 
@@ -75,10 +79,12 @@ public class Main {
     static void runReceiver(int port, String filename, FileStorageManager storage,
                             int initialTimeoutMillis, int inactivityTimeoutMillis,
                             int completionGraceMillis) throws Exception {
+        ImpairmentSettings impairment = ImpairmentSettings.fromSystemProperties();
+        reportImpairment(impairment);
         Path destination = storage.resolveIncomingFile(filename);
         Path temporaryFile = storage.createIncomingTemporaryFile();
         System.out.println("[receiver] Binding UDP socket on port " + port + " ...");
-        try (UdpChannel channel = new UdpChannel(port)) {
+        try (UdpChannel channel = new UdpChannel(port, impairment)) {
             System.out.println("[receiver] Waiting for a transfer...");
             TransferContext context = TransferContext.builder(TransferContext.Endpoint.RECEIVER)
                     .fileAttribution("storage/incoming/" + filename)
@@ -106,9 +112,11 @@ public class Main {
     }
 
     private static void runSender(int port, String filename, FileStorageManager storage) throws Exception {
+        ImpairmentSettings impairment = ImpairmentSettings.fromSystemProperties();
+        reportImpairment(impairment);
         Path file = storage.resolveOutgoingFile(filename);
         System.out.println("[sender] Opening UDP socket on an ephemeral port...");
-        try (UdpChannel channel = new UdpChannel()) {
+        try (UdpChannel channel = new UdpChannel(impairment)) {
             InetAddress loopback = InetAddress.getByName("127.0.0.1");
             int startTimeoutMillis = configuredStartHandshakeTimeoutMillis();
             int startRetryLimit = configuredStartRetryLimit();
@@ -186,6 +194,14 @@ public class Main {
     private static void reportLoggingFailure(EventLogger logger) {
         if (logger.getLoggingFailure() != null) {
             System.err.println("[event-logger] Evidence is incomplete: " + logger.getLoggingFailure());
+        }
+    }
+
+    private static void reportImpairment(ImpairmentSettings settings) {
+        if (settings.enabled()) {
+            System.out.println("[impairment] " + settings.scenario() + ": receiver DATA loss="
+                    + settings.lossPercent() + "%, DATA/ACK delivery delay=" + settings.delayMillis()
+                    + " ms per direction, seed=" + settings.seed() + "; START/FINISH unaffected");
         }
     }
 }

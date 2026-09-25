@@ -116,6 +116,7 @@ public final class TransferContext {
                     .packetLossRate(configuration.getPacketLossRate())
                     .delayMs(configuration.getDelayMs())
                     .scenario(configuration.getScenario())
+                    .impairmentMechanism(configuration.getImpairmentMechanism())
                     .impairmentSeed(configuration.getImpairmentSeed());
         }
         return metrics;

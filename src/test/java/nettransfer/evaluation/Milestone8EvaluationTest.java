@@ -21,8 +21,8 @@ class Milestone8EvaluationTest {
     @TempDir Path root;
 
     private void input() throws Exception {
-        Files.createDirectories(root.resolve("data/input"));
-        Files.writeString(root.resolve("data/input/demo.txt"), "fixture", StandardCharsets.UTF_8);
+        Files.createDirectories(root.resolve("storage/outgoing"));
+        Files.writeString(root.resolve("storage/outgoing/demo.txt"), "fixture", StandardCharsets.UTF_8);
     }
 
     @Test void keyAloneCannotEnableLiveExecution() throws Exception {

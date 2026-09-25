@@ -5,6 +5,13 @@ use a compact binary format. START, START_ACK, FINISH, FINISH_ACK, and
 ERROR are separate JSON-encoded control messages (see `ControlMessage`)
 and are not covered here.
 
+Reviewed against the integrated working tree based on commit `985b1a8`, including
+the verified local repairs, on September 25, 2026. This document
+is an implementation reference, not yet the complete assignment protocol
+deliverable: full JSON control formats, the state machine, command-validation
+boundary and a normal/loss sequence diagram still need to be assembled. See the
+[current evaluation checkpoint](README.md#current-evaluation-checkpoint).
+
 ## Header layout
 
 One fixed-size header shared by both DATA and ACK packets. ACK packets
@@ -31,6 +38,21 @@ DataOutputStream/DataInputStream write by default.
 - Max DATA packet: 27 (header) + 1024 (payload) = **1051 bytes**
 - ACK packet: always exactly **27 bytes**
 
+The decoder enforces exact datagram length (`27 + payloadLen`), the 1024-byte
+payload maximum, DATA/ACK type, and zero ACK payload before allocating the payload.
+The receiver also enforces each DATA sequence's expected length from the accepted
+file/chunk size, including the final remainder and the empty-file convention,
+before updating sequence state, writing, acknowledging or resetting progress.
+This repairs the earlier framing finding. Saved
+[framing validation](target/evaluation/data-framing-20260925-161314-533/validation.json)
+records 160 passing focused tests; [independent checks](target/evaluation/data-framing-20260925-161314-533/independent-framing-checks.json)
+retain malformed-frame rejection and corrected-file hash evidence.
+
+One pre-existing limit remains: START's advertised file size is converted to an
+`int` chunk count without an explicit extreme-size/overflow bound. Use bounded
+practical experiment sizes. This is a documented limit, not a demonstrated
+blocker for the required assignment experiments; no false-success case was reproduced.
+
 ## Why these limits (fragmentation avoidance)
 
 Standard Ethernet MTU = 1500 bytes. UDP header = 8 bytes, IPv4 header =
@@ -43,16 +65,22 @@ files than a larger chunk size would require.
 ## Sequence number semantics
 
 Chunk-indexed (0, 1, 2, ...), not byte-offset. Every chunk except possibly
-the last is exactly `chunkSize` bytes (negotiated in the START handshake),
+the last is exactly `chunkSize` bytes (proposed by the sender and accepted or
+rejected by the receiver in the START handshake),
 so byte-precision offers no benefit here.
+
+START_ACK does not propose an alternative chunk size. Both ordinary launchers
+propose 1024 bytes. An empty file is one zero-length DATA chunk.
 
 ACK's seqNum is cumulative: "every chunk from 0 up to and including this
 number has been correctly received." Matches the reliability design
 (receiver tracks highestContiguousSeqReceived).
 
-Out of scope for this document (behavioral, not wire-format, decided in
-later stages): the bootstrapping value of the first ACK before any data
-arrives, window-size fields, retransmission flags/counters.
+Before any in-order DATA is accepted, the receiver tracker uses -1 internally;
+it does not send that sentinel as an ACK. The first ACK follows acceptance of
+chunk 0. The sender accepts progress ACKs only from zero through the highest
+sent sequence. Window capacity and retransmission counters are local engine
+settings and observations, not additional binary header fields.
 
 ## CRC-32 scope
 
@@ -66,9 +94,12 @@ sender believe the wrong chunk was acknowledged. A failed-CRC ACK is
 treated the same as a lost ACK (ignored, left to time out and retransmit),
 rather than acted on.
 
-Note for metrics: a failed-CRC ACK is logged as a distinct CORRUPT_ACK
-event, not merged with LOST_ACK — same retry behavior, different
-observable failure mode.
+For metrics, a decoded ACK attributable to the expected peer/type/UUID is
+recorded as `DATA_ACK_RECEIVED` before full acceptance validation. An attributable
+ACK that fails validation can then produce `DATA_ACK_REJECTED`. There are no
+`CORRUPT_ACK` or `LOST_ACK` events in the current `EventType` enum. A DATA deadline
+can produce `DATA_TIMEOUT` and `RECOVERY_ROUND`; those observations do not prove
+whether DATA, an ACK, or something else caused the missing progress.
 
 ## Relationship to ControlMessage
 
@@ -76,6 +107,10 @@ Transfer IDs are the same UUID across both formats: ControlMessage carries
 it as a 36-character string (`UUID.toString()`); this binary format packs
 it into 16 raw bytes (`UUID.fromString(...)`, then split into two longs).
 Both refer to the identical transfer.
+
+After DATA is acknowledged, the sender computes the source file's SHA-256 for
+FINISH. The receiver requires all expected sequence slots and compares its
+reconstructed file against that hash before returning the verification result.
 
 ## Sender ACK acceptance
 
@@ -100,7 +135,9 @@ and cannot cancel timers or reset Go-Back-N recovery state.
 START is a bounded retry handshake rather than one unbounded blocking
 exchange. By default the sender waits 1000 ms per attempt and permits five
 retries after the initial attempt. Only a matching START_ACK from the expected
-receiver completes the handshake.
+receiver completes the handshake. The ordinary command console instead uses
+2000 ms per START attempt; the 1000 ms default here describes direct Main/engine
+startup. Main's system properties do not configure all console-adapter settings.
 
 During DATA transfer, expiry of the oldest outstanding DATA packet triggers a
 Go-Back-N recovery round that resends every outstanding DATA packet. The
@@ -124,7 +161,7 @@ exhaustion produces `FINISH_HANDSHAKE_TIMEOUT`.
 
 After sending the first FINISH_ACK, the receiver closes the output file and
 keeps the cached verification result for a bounded completion recovery period.
-The default CLI window is 6250 ms: all six default sender wait intervals plus
+The default receiver completion-recovery interval is 6250 ms: all six default sender wait intervals plus
 a 250 ms scheduling margin. During this fixed window, an identical FINISH from
 the same endpoint and transfer UUID receives the cached FINISH_ACK. The file is
 not rewritten or rehashed, and unrelated traffic does not extend the deadline.
@@ -135,7 +172,8 @@ window expires.
 
 Receiver DATA measurements begin only after a valid START is accepted. A DATA
 datagram increments `packets_received` after it is decoded and its sender
-endpoint, message type, transfer UUID, sequence range, and CRC are validated.
+endpoint, message type, transfer UUID, exact framing, sequence range, CRC and
+expected payload length are validated.
 This includes valid duplicate and ahead-of-gap arrivals. Malformed, corrupt,
 wrong-peer, wrong-transfer, and control datagrams do not increment it.
 
@@ -146,6 +184,13 @@ written bytes. SHA-256 match or mismatch is recorded as receiver integrity
 evidence only when the comparison runs; timeouts before comparison leave it
 unavailable. Receiver-local success remains separate from sender-confirmed
 `transfer_success`, which a standalone receiver cannot observe.
+
+When enabled, `RECEIVE_DELIVERY_V1` applies random DATA loss at receiver delivery
+and fixed per-direction delay to receiver DATA and sender ACK delivery. Those
+datagrams have already been emitted: shim drops remain in emission bytes but do
+not increment engine `packets_received`. Control handshakes are unaffected.
+See [controlled impairment observations](LOGGING.md#controlled-impairment-observations)
+for scope, event names, configuration and saved passing evidence.
 
 The existing empty-file convention sends one zero-length DATA packet, so an
 empty successful run observes zero delivered bytes while still observing that
@@ -185,8 +230,8 @@ Active sender elapsed time uses the same monotonic origin as the finalized
 transfer duration. Exact sender ACK progress sums the original encoded DATA
 payload lengths for newly acknowledged sequences, including a short final
 chunk or zero-length empty-file chunk. This supporting value and its ACK-based
-rate remain distinct from receiver-written `payload_bytes_delivered` and its
-future delivered-byte throughput. Snapshots are provisional until that
+rate remain distinct from receiver-written `payload_bytes_delivered` and the
+reconciled delivered-byte throughput. Snapshots are provisional until that
 endpoint reaches `SUCCEEDED` or `FAILED`; one endpoint becoming terminal does
 not finalize the other endpoint or any combined metric.
 
@@ -229,6 +274,11 @@ The UUID-scoped output contains one UTF-8 JSON object in `summary.jsonl` and a
 `manifest.json` linking both endpoint records, event logs, and run states. Publication
 uses a temporary sibling directory followed by an atomic move when supported. An
 existing UUID result is a collision error and is never replaced.
+
+The earlier null-RTT/retransmission-ratio reason propagation finding is repaired
+and covered by saved focused validation. See
+[LOGGING](LOGGING.md#missing-reason-propagation-repair). Null values still require
+reasons; a missing measurement is never treated as an observed zero.
 
 ## Byte layout diagram
 

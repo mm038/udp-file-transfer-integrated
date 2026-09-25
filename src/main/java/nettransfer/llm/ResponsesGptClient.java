@@ -65,6 +65,11 @@ public final class ResponsesGptClient implements GptClient {
         this(apiKey, settings, ResponsesTransport.ENDPOINT, observer);
     }
 
+    /** Optional local evaluation evidence; credentials and HTTP headers are never captured. */
+    public ResponsesGptClient(String apiKey, GptSettings settings, EvaluationCapture capture) {
+        this(apiKey, settings, ResponsesTransport.ENDPOINT, observation -> { }, capture);
+    }
+
     /** A loopback-only endpoint seam permits offline HTTP tests without exposing endpoint selection to GPT. */
     ResponsesGptClient(String apiKey, GptSettings settings, URI endpoint) {
         this(apiKey, settings, endpoint, observation -> { });
@@ -72,13 +77,26 @@ public final class ResponsesGptClient implements GptClient {
 
     ResponsesGptClient(String apiKey, GptSettings settings, URI endpoint,
                        Consumer<ApiCallObservation> observer) {
+        this(apiKey, settings, endpoint, observer, EvaluationCapture.disabled());
+    }
+
+    ResponsesGptClient(String apiKey, GptSettings settings, URI endpoint, EvaluationCapture capture) {
+        this(apiKey, settings, endpoint, observation -> { }, capture);
+    }
+
+    ResponsesGptClient(String apiKey, GptSettings settings, URI endpoint,
+                       Consumer<ApiCallObservation> observer, EvaluationCapture capture) {
         this.settings = Objects.requireNonNull(settings, "settings");
-        this.transport = new ResponsesTransport(apiKey, settings, endpoint, observer);
+        this.transport = new ResponsesTransport(apiKey, settings, endpoint, observer, capture);
     }
 
     public static ResponsesGptClient fromEnvironment(Map<String, String> environment) {
+        return fromEnvironment(environment, EvaluationCapture.disabled());
+    }
+
+    public static ResponsesGptClient fromEnvironment(Map<String, String> environment, EvaluationCapture capture) {
         Objects.requireNonNull(environment, "environment");
-        return new ResponsesGptClient(environment.get("OPENAI_API_KEY"), GptSettings.fromEnvironment(environment));
+        return new ResponsesGptClient(environment.get("OPENAI_API_KEY"), GptSettings.fromEnvironment(environment), capture);
     }
 
     @Override

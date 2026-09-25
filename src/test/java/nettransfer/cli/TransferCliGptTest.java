@@ -43,10 +43,10 @@ class TransferCliGptTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        Files.createDirectories(root.resolve("data/input"));
-        Files.writeString(root.resolve("data/input/report.txt"), "PRIVATE FILE CONTENT NOT FOR GPT");
+        Files.createDirectories(root.resolve("storage/outgoing"));
+        Files.writeString(root.resolve("storage/outgoing/report.txt"), "PRIVATE FILE CONTENT NOT FOR GPT");
         configuration = TransferConfiguration.localhost(root,
-                Map.of("report", Path.of("data/input/report.txt")));
+                Map.of("report", Path.of("storage/outgoing/report.txt")));
         service = new CountingService();
         output = new StringWriter();
     }
@@ -60,7 +60,7 @@ class TransferCliGptTest {
         assertEquals(1, service.starts);
         assertEquals(2, service.lastRequest.settings().windowPackets());
         assertEquals(350, service.lastRequest.settings().timeoutMillis());
-        assertEquals(root.resolve("data/input/report.txt").toRealPath(), service.lastRequest.sourcePath());
+        assertEquals(root.resolve("storage/outgoing/report.txt").toRealPath(), service.lastRequest.sourcePath());
         assertEquals(stub.requests().get(0).requestId(), service.lastRequest.requestId());
         assertTrue(displayed.contains("Start accepted [SYNTHETIC]"), displayed);
         InterpretationRequest request = stub.requests().get(0);

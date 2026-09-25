@@ -37,6 +37,8 @@ public final class MetricsCollector {
     private Boolean transferSuccess;
     private String failureReason;
     private boolean rttSamplingActive;
+    private boolean impairmentObservationActive;
+    private long impairmentDrops;
     private final Map<Integer, RttState> outstandingRtt = new HashMap<>();
     private final List<Double> eligibleRttMillis = new ArrayList<>();
     private MetricsCalculator.RttStatistics cachedRttStatistics;
@@ -397,6 +399,10 @@ public final class MetricsCollector {
         }
 
         addDeferredReasons(metrics);
+        if (impairmentObservationActive) {
+            metrics.unavailableReason("packets_dropped",
+                    "receive-delivery DATA drops are observed at the receiver; receiver evidence is required");
+        }
         return metrics.build();
     }
 
@@ -404,6 +410,27 @@ public final class MetricsCollector {
     public synchronized void observeReceiverStartArrival() {
         requireEndpoint(TransferContext.Endpoint.RECEIVER);
         receiverStartArrivals++;
+    }
+
+    /** Starts scoped receive-delivery observation; configured probability is not a drop count. */
+    public synchronized void beginImpairmentObservation() {
+        if (context.getConfiguration() == null
+                || !"RECEIVE_DELIVERY_V1".equals(context.getConfiguration().getImpairmentMechanism())) {
+            throw new IllegalStateException("receive-delivery impairment is not configured");
+        }
+        if (impairmentObservationActive) {
+            throw new IllegalStateException("impairment observation already started");
+        }
+        impairmentObservationActive = true;
+    }
+
+    /** One valid peer/UUID DATA datagram discarded before delivery to the receiver engine. */
+    public synchronized void observeImpairmentDrop() {
+        requireEndpoint(TransferContext.Endpoint.RECEIVER);
+        if (!impairmentObservationActive) {
+            throw new IllegalStateException("impairment observation has not started");
+        }
+        impairmentDrops++;
     }
 
     /** Activates receiver DATA measurements after START has been validated and accepted. */
@@ -427,7 +454,7 @@ public final class MetricsCollector {
         packetsReceived++;
     }
 
-    /** Records a decoded active-transfer DATA packet that failed range or CRC validation. */
+    /** Records attributable active-transfer DATA rejected for framing, length, sequence or CRC. */
     public synchronized void observeReceiverDataValidationFailure() {
         requireReceiverMeasurement();
         dataValidationFailures++;
@@ -541,6 +568,12 @@ public final class MetricsCollector {
                 .unavailableReason("rtt_mean_ms", "RTT is observed only by the sender")
                 .unavailableReason("rtt_p95_ms", "RTT is observed only by the sender");
 
+        if (impairmentObservationActive) {
+            metrics.packetsDropped(impairmentDrops).clearUnavailableReason("packets_dropped");
+        } else if (context.getConfiguration() != null
+                && "RECEIVE_DELIVERY_V1".equals(context.getConfiguration().getImpairmentMechanism())) {
+            metrics.unavailableReason("packets_dropped", "receive-delivery observation never started");
+        }
         if (receiverMeasurementActive) {
             metrics.packetsReceived(packetsReceived)
                     .packetsDuplicated(packetsDuplicated)

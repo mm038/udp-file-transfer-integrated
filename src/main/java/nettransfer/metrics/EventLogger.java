@@ -164,7 +164,8 @@ public final class EventLogger implements AutoCloseable {
                     value.attemptNumber(), value.payloadBytes(), value.encodedUdpPayloadBytes(),
                     value.validationResult(), value.sequenceOutcome(), value.eventOutcome(),
                     value.failureReason(), value.newlyAcknowledgedPackets(),
-                    value.retransmission(), value.integrityVerified());
+                    value.retransmission(), value.integrityVerified(),
+                    value.impairmentDecisionIndex(), value.impairmentDelayMs());
             writer.write(JSON.toJson(event));
             writer.write('\n');
             nextSequence++;

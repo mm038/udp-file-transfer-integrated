@@ -123,7 +123,7 @@ class ResponsesGptClientTest {
         assertTrue(captured.body().contains("Which receiver?"));
         assertTrue(captured.body().contains(current.toString()));
         assertTrue(captured.body().contains(last.toString()));
-        assertFalse(captured.body().contains("data/input/"));
+        assertFalse(captured.body().contains("storage/outgoing/"));
 
         JsonArray tools = body.getAsJsonArray("tools");
         assertEquals(3, tools.size());
@@ -291,11 +291,11 @@ class ResponsesGptClientTest {
 
     @Test
     void httpRetryThroughCliStartsExactlyOnceAndPreservesJavaRequestIdentity(@TempDir Path root) throws Exception {
-        Path source = root.resolve("data/input/report.txt");
+        Path source = root.resolve("storage/outgoing/report.txt");
         Files.createDirectories(source.getParent());
         Files.writeString(source, "File contents must stay on this machine.");
         TransferConfiguration configuration = TransferConfiguration.localhost(root,
-                Map.of("report", Path.of("data/input/report.txt")));
+                Map.of("report", Path.of("storage/outgoing/report.txt")));
         TransferMetrics unknown = TransferMetrics.unavailable("Synthetic API integration fixture");
         FakeTransferService fake = new FakeTransferService(FakeTransferService.Scenario.success(List.of(unknown), unknown));
         AtomicInteger starts = new AtomicInteger();

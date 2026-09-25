@@ -20,6 +20,8 @@ import java.util.function.Consumer;
 
 /** Tool-free analysis HTTP adapter. Returned drafts still require ExplanationFlow's evidence checks. */
 public final class ResponsesExplanationClient implements ExplanationClient {
+    // The API counts reasoning and visible answer tokens against this same allowance.
+    private static final int MAX_OUTPUT_TOKENS = 32768;
     private static final int MAX_DRAFT_CHARS = 32_768;
     private final GptSettings settings;
     private final ResponsesTransport transport;
@@ -34,6 +36,11 @@ public final class ResponsesExplanationClient implements ExplanationClient {
         this(apiKey, settings, ResponsesTransport.ENDPOINT, observer);
     }
 
+    /** Optional local evaluation evidence; credentials and HTTP headers are never captured. */
+    public ResponsesExplanationClient(String apiKey, GptSettings settings, EvaluationCapture capture) {
+        this(apiKey, settings, ResponsesTransport.ENDPOINT, observation -> { }, capture);
+    }
+
     /** Package-private loopback seam for offline HTTP tests. */
     ResponsesExplanationClient(String apiKey, GptSettings settings, URI endpoint) {
         this(apiKey, settings, endpoint, observation -> { });
@@ -41,13 +48,28 @@ public final class ResponsesExplanationClient implements ExplanationClient {
 
     ResponsesExplanationClient(String apiKey, GptSettings settings, URI endpoint,
                                Consumer<ApiCallObservation> observer) {
+        this(apiKey, settings, endpoint, observer, EvaluationCapture.disabled());
+    }
+
+    ResponsesExplanationClient(String apiKey, GptSettings settings, URI endpoint, EvaluationCapture capture) {
+        this(apiKey, settings, endpoint, observation -> { }, capture);
+    }
+
+    ResponsesExplanationClient(String apiKey, GptSettings settings, URI endpoint,
+                               Consumer<ApiCallObservation> observer, EvaluationCapture capture) {
         this.settings = Objects.requireNonNull(settings, "settings");
-        this.transport = new ResponsesTransport(apiKey, settings, endpoint, observer);
+        this.transport = new ResponsesTransport(apiKey, settings, endpoint, observer, capture);
     }
 
     public static ResponsesExplanationClient fromEnvironment(Map<String, String> environment) {
+        return fromEnvironment(environment, EvaluationCapture.disabled());
+    }
+
+    public static ResponsesExplanationClient fromEnvironment(Map<String, String> environment,
+                                                            EvaluationCapture capture) {
+        Objects.requireNonNull(environment, "environment");
         return new ResponsesExplanationClient(environment.get("OPENAI_API_KEY"),
-                GptSettings.fromEnvironment(environment));
+                GptSettings.fromEnvironment(environment), capture);
     }
 
     @Override
@@ -61,7 +83,7 @@ public final class ResponsesExplanationClient implements ExplanationClient {
         payload.addProperty("model", settings.model());
         payload.addProperty("instructions", ExplanationRequest.INSTRUCTIONS);
         payload.addProperty("store", false);
-        payload.addProperty("max_output_tokens", 4096);
+        payload.addProperty("max_output_tokens", MAX_OUTPUT_TOKENS);
         payload.add("tools", new JsonArray());
         payload.addProperty("tool_choice", "none");
 
@@ -141,16 +163,34 @@ public final class ResponsesExplanationClient implements ExplanationClient {
         JsonArray references = new JsonArray();
         metadata.sourceReferences().forEach(references::add);
         result.add("source_references", references);
+        if (metadata.impairment() != null) {
+            var supplied = metadata.impairment();
+            JsonObject impairment = new JsonObject();
+            impairment.addProperty("mechanism", supplied.mechanism());
+            impairment.addProperty("scenario", supplied.scenario());
+            impairment.addProperty("seed", supplied.seed());
+            impairment.addProperty("affected_traffic", supplied.affectedTraffic());
+            impairment.addProperty("receiver_drop_observations_available", supplied.receiverDropObservationsAvailable());
+            result.add("impairment", impairment);
+        }
         return result;
     }
 
     private static JsonObject schema() {
         JsonObject reference = objectSchema("field_id", type("string"), "value", type("number"),
                 "unit", type("string"));
-        JsonObject observation = objectSchema("text", type("string"), "references", arraySchema(reference));
+        JsonObject observation = objectSchema("text", proseSchema(), "references", arraySchema(reference, 1, 8));
         return objectSchema("run_id", type("string"), "transfer_id", type("string"),
-                "observations", arraySchema(observation), "hypotheses", arraySchema(type("string")),
-                "limitations", arraySchema(type("string")));
+                "observations", arraySchema(observation, 0, 8), "hypotheses", arraySchema(proseSchema(), 0, 4),
+                "limitations", arraySchema(proseSchema(), 1, 8));
+    }
+
+    private static JsonObject proseSchema() {
+        JsonObject schema = type("string");
+        // Constrain generation as well as validating afterward. Java remains authoritative
+        // for blank/control-character checks and its UTF-16 length definition.
+        schema.addProperty("pattern", "^[\\s\\S]{1,600}$");
+        return schema;
     }
 
     private static JsonObject type(String name) {
@@ -159,9 +199,11 @@ public final class ResponsesExplanationClient implements ExplanationClient {
         return schema;
     }
 
-    private static JsonObject arraySchema(JsonObject items) {
+    private static JsonObject arraySchema(JsonObject items, int minimum, int maximum) {
         JsonObject schema = type("array");
         schema.add("items", items);
+        schema.addProperty("minItems", minimum);
+        schema.addProperty("maxItems", maximum);
         return schema;
     }
 

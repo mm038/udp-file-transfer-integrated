@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Random;
 import java.util.UUID;
 
 /** Persists endpoint metrics and reconciles two explicit, finalized endpoint run directories. */
@@ -306,6 +307,26 @@ public final class MetricsExporter {
         requireEqual("scenario projection", configuration.getScenario(), metrics.getScenario());
         requireEqual("impairment-seed projection", configuration.getImpairmentSeed(),
                 metrics.getImpairmentSeed());
+        requireEqual("impairment mechanism projection", configuration.getImpairmentMechanism(),
+                metrics.getImpairmentMechanism());
+        validateImpairmentConfiguration(configuration);
+    }
+
+    private static void validateImpairmentConfiguration(TransferConfiguration configuration)
+            throws EvidenceException {
+        if (configuration.getImpairmentMechanism() == null) return; // Historical, unconfigured evidence.
+        Double loss = configuration.getPacketLossRate();
+        Double delay = configuration.getDelayMs();
+        if (!"RECEIVE_DELIVERY_V1".equals(configuration.getImpairmentMechanism())
+                || loss == null || !Double.isFinite(loss) || loss < 0 || loss > 100
+                || delay == null || !Double.isFinite(delay) || delay < 0 || delay > 5_000
+                || delay != Math.rint(delay) || configuration.getImpairmentSeed() == null
+                || configuration.getScenario() == null || configuration.getScenario().isBlank()
+                || configuration.getScenario().length() > 128
+                || configuration.getScenario().chars().anyMatch(Character::isISOControl)) {
+            throw new EvidenceException("INVALID_IMPAIRMENT_CONFIGURATION",
+                    "receive-delivery evidence requires supported mechanism and complete valid settings");
+        }
     }
 
     private static void validateAssociation(EndpointMetricsRecord sender,
@@ -321,6 +342,17 @@ public final class MetricsExporter {
                 receiver.metrics().getFileSizeBytes());
         conflictIfBothPresent("chunk size", sender.metrics().getChunkSizeBytes(),
                 receiver.metrics().getChunkSizeBytes());
+        TransferConfiguration senderConfig = sender.configuration();
+        TransferConfiguration receiverConfig = receiver.configuration();
+        if (!Objects.equals(senderConfig.getImpairmentMechanism(), receiverConfig.getImpairmentMechanism())
+                || (senderConfig.getImpairmentMechanism() != null
+                && (!Objects.equals(senderConfig.getPacketLossRate(), receiverConfig.getPacketLossRate())
+                || !Objects.equals(senderConfig.getDelayMs(), receiverConfig.getDelayMs())
+                || !Objects.equals(senderConfig.getScenario(), receiverConfig.getScenario())
+                || !Objects.equals(senderConfig.getImpairmentSeed(), receiverConfig.getImpairmentSeed())))) {
+            throw new EvidenceException("IMPAIRMENT_PROFILE_MISMATCH",
+                    "sender and receiver must use the same enabled mechanism, loss, delay, scenario and seed");
+        }
         if (receiver.receiverObservations() == null
                 || !receiver.receiverObservations().startAccepted()
                 || receiver.receiverObservations().establishedPeerAddress() == null
@@ -380,19 +412,56 @@ public final class MetricsExporter {
         Double throughput = MetricsCalculator.throughputMbps(delivered, s.getTransferTimeSec());
         Double retransmissionRatio = MetricsCalculator.retransmissionRatio(
                 s.getRetransmissions(), s.getPacketsSent());
+        Long fileSize = firstNonNull(s.getFileSizeBytes(), r.getFileSizeBytes());
+        boolean receiveImpairment = "RECEIVE_DELIVERY_V1".equals(s.getImpairmentMechanism());
+        Long dropped = receiveImpairment ? r.getPacketsDropped() : s.getPacketsDropped();
         Map<String, String> unavailable = new LinkedHashMap<>();
-        if (s.getPacketsDropped() == null) {
-            unavailable.put("packets_dropped", "no active simulator or observed drop evidence");
+        // Preserve reasons only for missing values, from the endpoint supplying each metric.
+        copyReasonIfNull(unavailable, "file_size_bytes", fileSize, s);
+        copyReasonIfNull(unavailable, "payload_bytes_delivered", delivered, r);
+        copyReasonIfNull(unavailable, "transfer_time_sec", s.getTransferTimeSec(), s);
+        copyReasonIfNull(unavailable, "transfer_success", s.getTransferSuccess(), s);
+        copyReasonIfNull(unavailable, "integrity_verified", r.getIntegrityVerified(), r);
+        copyReasonIfNull(unavailable, "packets_sent", s.getPacketsSent(), s);
+        copyReasonIfNull(unavailable, "packets_received", r.getPacketsReceived(), r);
+        copyReasonIfNull(unavailable, "retransmissions", s.getRetransmissions(), s);
+        copyReasonIfNull(unavailable, "acks_received", s.getAcksReceived(), s);
+        copyReasonIfNull(unavailable, "packets_acked", s.getPacketsAcked(), s);
+        copyReasonIfNull(unavailable, "packets_timed_out", s.getPacketsTimedOut(), s);
+        copyReasonIfNull(unavailable, "packets_duplicated", r.getPacketsDuplicated(), r);
+        copyReasonIfNull(unavailable, "rtt_sample_count", s.getRttSampleCount(), s);
+        copyReasonIfNull(unavailable, "rtt_mean_ms", s.getRttMeanMs(), s);
+        copyReasonIfNull(unavailable, "rtt_p95_ms", s.getRttP95Ms(), s);
+        if (dropped == null) {
+            // Retain the established combined-scope reason for compatibility with saved summaries.
+            unavailable.put("packets_dropped", receiveImpairment
+                    ? r.getUnavailableReasons().get("packets_dropped")
+                    : "no active simulator or observed drop evidence");
         }
         if (throughput == null) {
             unavailable.put("throughput_mbps",
                     delivered == null ? "receiver delivery evidence is unavailable"
                             : "sender transfer duration is zero or unavailable");
         }
-        if (overhead.protocolOverheadRatio() == null) {
-            unavailable.put("protocol_overhead_ratio", "combined emitted-byte denominator is zero");
+        if (retransmissionRatio == null) {
+            unavailable.put("retransmission_ratio",
+                    s.getPacketsSent() == null || s.getRetransmissions() == null
+                            ? "sender DATA attempt or retransmission counts are unavailable"
+                            : "no DATA send attempts were observed");
         }
+        if (overhead.protocolOverheadBytes() == null) {
+            unavailable.put("protocol_overhead_bytes", "receiver delivery evidence is unavailable");
+        }
+        if (overhead.protocolOverheadRatio() == null) {
+            unavailable.put("protocol_overhead_ratio", delivered == null
+                    ? "receiver delivery evidence is unavailable"
+                    : "combined emitted-byte denominator is zero");
+        }
+        copyReasonIfNull(unavailable, "chunk_size_bytes", s.getChunkSizeBytes(), s);
         copyReasonIfNull(unavailable, "window_bytes_requested", s.getWindowBytesRequested(), s);
+        copyReasonIfNull(unavailable, "window_packets", s.getWindowPackets(), s);
+        copyReasonIfNull(unavailable, "timeout_ms", s.getTimeoutMs(), s);
+        copyReasonIfNull(unavailable, "retry_limit", s.getRetryLimit(), s);
         copyReasonIfNull(unavailable, "packet_loss_rate", s.getPacketLossRate(), s);
         copyReasonIfNull(unavailable, "delay_ms", s.getDelayMs(), s);
         copyReasonIfNull(unavailable, "scenario", s.getScenario(), s);
@@ -412,7 +481,7 @@ public final class MetricsExporter {
                 .metricDefinitionVersion(MetricsSchema.METRIC_DEFINITION_VERSION)
                 .evidenceSource(TransferMetrics.EvidenceSource.REAL)
                 .experimentId(experimentId)
-                .fileSizeBytes(firstNonNull(s.getFileSizeBytes(), r.getFileSizeBytes()))
+                .fileSizeBytes(fileSize)
                 .payloadBytesDelivered(delivered)
                 .transferTimeSec(s.getTransferTimeSec())
                 .throughputMbps(throughput)
@@ -420,7 +489,7 @@ public final class MetricsExporter {
                 .integrityVerified(r.getIntegrityVerified())
                 .failureReason(failureReason)
                 .packetsSent(s.getPacketsSent()).packetsReceived(r.getPacketsReceived())
-                .packetsDropped(s.getPacketsDropped()).retransmissions(s.getRetransmissions())
+                .packetsDropped(dropped).retransmissions(s.getRetransmissions())
                 .acksReceived(s.getAcksReceived()).packetsAcked(s.getPacketsAcked())
                 .packetsTimedOut(s.getPacketsTimedOut()).packetsDuplicated(r.getPacketsDuplicated())
                 .retransmissionRatio(retransmissionRatio)
@@ -434,11 +503,13 @@ public final class MetricsExporter {
                 .windowPackets(s.getWindowPackets()).timeoutMs(s.getTimeoutMs())
                 .retryLimit(s.getRetryLimit()).packetLossRate(s.getPacketLossRate())
                 .delayMs(s.getDelayMs()).scenario(s.getScenario()).impairmentSeed(s.getImpairmentSeed())
+                .impairmentMechanism(s.getImpairmentMechanism())
                 .applicationTransferId(applicationId).protocolTransferId(sender.protocolTransferId())
                 .endpointAttribution("COMBINED")
                 .captureTimestamp(finalizedAt).finalizationTimestamp(finalizedAt)
                 .integrityEvidenceSource(r.getIntegrityEvidenceSource())
                 .unavailableReasons(unavailable).build();
+        validateUnavailableReasons(combined);
         FinalMetricsSummary.SourceEvidence sources = new FinalMetricsSummary.SourceEvidence(
                 relative(outputDirectory, senderEvidence.endpointPath()),
                 relative(outputDirectory, receiverEvidence.endpointPath()),
@@ -507,6 +578,7 @@ public final class MetricsExporter {
         long dataReceived = 0;
         long duplicates = 0;
         long payloadWritten = 0;
+        ImpairmentEvidence impairment = new ImpairmentEvidence(record, endpoint);
         Set<Long> originalDataSequences = new HashSet<>();
         Boolean integrityObserved = null;
         String terminalType = endpoint == TransferContext.Endpoint.SENDER
@@ -541,6 +613,9 @@ public final class MetricsExporter {
                         "event protocol UUID conflicts at line " + (index + 1));
             }
             String type = event.get("event_type").getAsString();
+            if (type.startsWith("IMPAIRMENT_")) {
+                impairment.accept(type, event);
+            }
             if (type.endsWith("_EMITTED")
                     && event.has("encoded_udp_payload_bytes")
                     && !event.get("encoded_udp_payload_bytes").isJsonNull()) {
@@ -605,9 +680,10 @@ public final class MetricsExporter {
             throw new EvidenceException("EVENT_COUNT_MISMATCH",
                     endpoint + " run-state event count does not match JSONL");
         }
+        impairment.validateFinished();
         return new EventEvidence(emitted, dataAttempts, retransmissions, ackArrivals,
                 acked, timeouts, dataReceived, duplicates, payloadWritten,
-                originalDataSequences.size(), integrityObserved);
+                originalDataSequences.size(), integrityObserved, impairment.started, impairment.drops);
     }
 
     private static void validateEventMetricConsistency(
@@ -616,6 +692,14 @@ public final class MetricsExporter {
         requireCount("emitted UDP payload bytes",
                 record.endpointEmission().localUdpPayloadBytesEmitted(), events.emittedBytes());
         TransferMetrics metrics = record.metrics();
+        if ("RECEIVE_DELIVERY_V1".equals(record.configuration().getImpairmentMechanism())) {
+            if (endpoint == TransferContext.Endpoint.RECEIVER && events.impairmentStarted()) {
+                requireCount("receive-delivery DATA drops", metrics.getPacketsDropped(), events.impairmentDrops());
+            } else if (metrics.getPacketsDropped() != null) {
+                throw new EvidenceException("IMPAIRMENT_DROP_SCOPE_MISMATCH",
+                        "DATA drop counts require active receiver-side observation");
+            }
+        }
         if (endpoint == TransferContext.Endpoint.SENDER) {
             requireCount("DATA attempts", metrics.getPacketsSent(), events.dataAttempts());
             requireCount("DATA retransmissions", metrics.getRetransmissions(), events.retransmissions());
@@ -845,10 +929,10 @@ public final class MetricsExporter {
     }
 
     private static void copyReasonIfNull(Map<String, String> target, String field,
-                                         Object value, TransferMetrics source) {
+                                         Object value, TransferMetrics source) throws EvidenceException {
         if (value == null) {
-            target.put(field, source.getUnavailableReasons().getOrDefault(field,
-                    "measurement unavailable in sender evidence"));
+            requireReason(source, field, null);
+            target.put(field, source.getUnavailableReasons().get(field));
         }
     }
 
@@ -884,10 +968,134 @@ public final class MetricsExporter {
         public String getCode() { return code; }
     }
 
+    /** Checks every scoped decision has one terminal outcome before evidence is finalized. */
+    private static final class ImpairmentEvidence {
+        private final EndpointMetricsRecord record;
+        private final TransferContext.Endpoint endpoint;
+        private final boolean configured;
+        private final Random random;
+        private final Map<Long, PendingDecision> pending = new LinkedHashMap<>();
+        private boolean started;
+        private boolean finished;
+        private boolean failed;
+        private long nextDecision = 1;
+        private long drops;
+
+        private ImpairmentEvidence(EndpointMetricsRecord record, TransferContext.Endpoint endpoint) {
+            this.record = record;
+            this.endpoint = endpoint;
+            configured = "RECEIVE_DELIVERY_V1".equals(record.configuration().getImpairmentMechanism());
+            random = configured ? new Random(record.configuration().getImpairmentSeed()) : null;
+        }
+
+        private void accept(String type, JsonObject event) throws EvidenceException {
+            if (!configured || finished) reject("impairment events occur outside an enabled, unfinished scope");
+            requireJsonString(event, "protocol_transfer_id", record.protocolTransferId());
+            if (type.equals(EventType.IMPAIRMENT_STARTED.name())) {
+                if (started) reject("impairment scope started more than once");
+                requireJsonString(event, "direction", TransferEvent.Direction.LOCAL.name());
+                requireJsonString(event, "event_outcome", "RECEIVE_DELIVERY_V1");
+                started = true;
+                return;
+            }
+            if (!started) reject("impairment decision occurs before its scope starts");
+            if (type.equals(EventType.IMPAIRMENT_FINISHED.name())) {
+                requireJsonString(event, "direction", TransferEvent.Direction.LOCAL.name());
+                requireJsonString(event, "event_outcome", "DECISIONS_FINALIZED");
+                if (!pending.isEmpty()) reject("delayed impairment decisions are not finalized");
+                finished = true;
+                return;
+            }
+            requireJsonString(event, "direction", TransferEvent.Direction.INBOUND.name());
+            String message = endpoint == TransferContext.Endpoint.RECEIVER ? "DATA" : "ACK";
+            requireJsonString(event, "message_type", message);
+            long sequence = requiredInteger(event, endpoint == TransferContext.Endpoint.RECEIVER
+                    ? "sequence_number" : "ack_number");
+            if (sequence < -1 || sequence > Integer.MAX_VALUE
+                    || (endpoint == TransferContext.Endpoint.RECEIVER && sequence < 0)) {
+                reject("impairment sequence is outside the wire field bounds");
+            }
+            long decision = requiredInteger(event, "impairment_decision_index");
+            long delay = requiredInteger(event, "impairment_delay_ms");
+            if (delay != record.configuration().getDelayMs().longValue()) {
+                reject("impairment event delay conflicts with configured per-direction delay");
+            }
+            PendingDecision prior = pending.get(decision);
+            boolean delayed = type.equals(EventType.IMPAIRMENT_DELAYED.name());
+            boolean delivered = type.equals(EventType.IMPAIRMENT_DELIVERED.name());
+            boolean dropped = type.equals(EventType.IMPAIRMENT_DROPPED.name());
+            boolean cancelled = type.equals(EventType.IMPAIRMENT_CANCELLED.name());
+            boolean failure = type.equals(EventType.IMPAIRMENT_FAILED.name());
+            if (!(delayed || delivered || dropped || cancelled || failure)) reject("unknown impairment event");
+            String action = delayed ? "DELAY" : delivered ? "DELIVER" : dropped ? "DROP"
+                    : cancelled ? "CANCEL" : "QUEUE_OVERFLOW";
+            if (!event.has("event_outcome") || event.get("event_outcome").isJsonNull()
+                    || !action.equals(event.get("event_outcome").getAsString())) {
+                reject("impairment event type and recorded action conflict");
+            }
+            if (failure && delay == 0) reject("zero-delay profile has no queue to overflow");
+            if (prior != null) {
+                if (prior.sequence() != sequence || !(delivered || cancelled)) {
+                    reject("delayed decision has conflicting sequence or terminal outcome");
+                }
+                pending.remove(decision);
+            } else {
+                if (decision != nextDecision++) reject("impairment decision indices are missing or repeated");
+                if (endpoint == TransferContext.Endpoint.RECEIVER) {
+                    boolean expectedDrop = random.nextDouble() < record.configuration().getPacketLossRate() / 100.0;
+                    if (dropped != expectedDrop) reject("DATA drop decision disagrees with configured seed and probability");
+                }
+                if (cancelled || (delivered && delay > 0)) reject("delayed decision is missing its queue event");
+                if (delayed) {
+                    if (delay == 0) reject("zero-delay profile cannot queue a delay");
+                    pending.put(decision, new PendingDecision(sequence));
+                }
+            }
+            if (dropped) {
+                if (endpoint != TransferContext.Endpoint.RECEIVER
+                        || record.configuration().getPacketLossRate() == 0) {
+                    reject("DATA drops conflict with endpoint or configured zero loss");
+                }
+                drops++;
+            }
+            if (failure) failed = true;
+        }
+
+        private void validateFinished() throws EvidenceException {
+            if (!configured) return;
+            boolean receiverNeverAccepted = endpoint == TransferContext.Endpoint.RECEIVER
+                    && record.receiverObservations() != null && !record.receiverObservations().startAccepted()
+                    && "FAILED".equals(record.terminalOutcome());
+            if (!started && receiverNeverAccepted) return;
+            if (!started || !finished || !pending.isEmpty()) reject("configured impairment observation is incomplete");
+            if (failed && "SUCCESS".equals(record.terminalOutcome())) {
+                reject("successful endpoint cannot hide an impairment queue failure");
+            }
+        }
+
+        private static long requiredInteger(JsonObject event, String field) throws EvidenceException {
+            try {
+                JsonElement value = event.get(field);
+                if (value == null || value.isJsonNull() || !value.isJsonPrimitive()
+                        || !value.getAsJsonPrimitive().isNumber()) throw new IllegalArgumentException();
+                return value.getAsBigDecimal().longValueExact();
+            } catch (RuntimeException exception) {
+                throw new EvidenceException("INVALID_IMPAIRMENT_EVENT", "missing or noninteger " + field);
+            }
+        }
+
+        private static void reject(String reason) throws EvidenceException {
+            throw new EvidenceException("INVALID_IMPAIRMENT_EVENT", reason);
+        }
+
+        private record PendingDecision(long sequence) {}
+    }
+
     private record EventEvidence(long emittedBytes, long dataAttempts, long retransmissions,
                                  long ackArrivals, long acked, long timeouts,
                                  long dataReceived, long duplicates, long payloadWritten,
-                                 long originalDataSequences, Boolean integrityObserved) {}
+                                 long originalDataSequences, Boolean integrityObserved,
+                                 boolean impairmentStarted, long impairmentDrops) {}
 
     private record Manifest(
             String schemaVersion,

@@ -64,7 +64,13 @@ All new GPT code is in `src/main/java/nettransfer/llm`:
 
 ## Configuration for a later live session
 
-No live OpenAI request is required to build or test this milestone. Once ready for a live session, set the key in the launching terminal, without putting it in Java, a tracked file or a literal shell-history entry:
+No live OpenAI request is required to build or test this milestone. The command
+below is updated for the later approved `storage/outgoing` console root and
+current capture/timeout settings; the earlier `data/input` evaluation evidence
+and historical milestone results remain unchanged. Use the matching build in the
+[current walkthrough](live-demo-walkthrough.md). For an explicitly approved live
+session, set the key in the launching terminal, without putting it in Java, a
+tracked file or a literal shell-history entry:
 
 ```powershell
 $gptKeyInput = Read-Host 'OpenAI API key' -AsSecureString
@@ -72,13 +78,13 @@ $env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new('', $gptKeyInput).Pass
 Remove-Variable gptKeyInput
 $env:OPENAI_MODEL = 'gpt-5-mini'
 $env:OPENAI_CONNECT_TIMEOUT_MS = '5000'
-$env:OPENAI_REQUEST_TIMEOUT_MS = '30000'
-java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . 'report=data/input/report.txt'
+$env:OPENAI_REQUEST_TIMEOUT_MS = '90000'
+java '-Dnettransfer.evaluation.record=true' -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . 'report=storage/outgoing/report.txt'
 ```
 
 API deadlines accept integer milliseconds from 100 to 120,000. They do not change the UDP retransmission timeout. A configured production client always uses `https://api.openai.com/v1/responses` and does not follow redirects. A package-private loopback endpoint is available only for offline tests. Without a key, direct JSON commands, `help`, `catalog` and `status` still work; natural-language requests report `MISSING_CREDENTIALS`.
 
-The input file must already exist under `data/input`. Start a fresh receiver with an unused output filename as described in the README before requesting a real transfer. Remove the process-local credential afterward with `Remove-Item Env:OPENAI_API_KEY`.
+The input file must already exist under `storage/outgoing`. Start a fresh receiver with an unused output filename as described in the README before requesting a real transfer. Remove the process-local credential afterward with `Remove-Item Env:OPENAI_API_KEY`.
 
 ## Offline verification
 

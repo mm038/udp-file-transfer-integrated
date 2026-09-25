@@ -1,5 +1,13 @@
 # Persistent endpoint event logs
 
+Implementation reference reviewed September 25, 2026 for the integrated working
+tree based on commit `985b1a8`, including the verified local repairs. The logging,
+reconciliation and real explanation route are connected;
+the [current evaluation checkpoint](README.md#current-evaluation-checkpoint)
+records completed Sections 3–6 and the remaining Person 4 experiments and team
+deliverables. The earlier missing-reason propagation defect is repaired; saved
+validation is linked below. Original failure artifacts remain historical evidence.
+
 The Java engines can persist real protocol and measurement observations as JSON Lines. Logging is
 enabled by the CLI. Programmatic callers enable it before starting an engine:
 
@@ -33,8 +41,9 @@ digits, `.`, `_`, and `-` are used directly as directory components. Other IDs a
 SHA-256-derived safe component, preventing absolute paths and traversal. Creating a run directory
 is exclusive: an existing directory causes startup to fail rather than truncating evidence.
 
-The CLI root defaults to `logs` and can be changed with the Java system property
-`nettransfer.logsRoot`.
+The direct `nettransfer.Main` logging root defaults to `logs` and can be changed
+with the Java system property `nettransfer.logsRoot`. The command console instead
+derives `<projectRoot>/logs`; it does not read that property.
 
 ## JSONL schema version 1
 
@@ -66,6 +75,8 @@ Each UTF-8 line is one complete compact JSON object. Optional fields are present
 | `newly_acknowledged_packets` | integer/null | Actual cumulative window progress. |
 | `retransmission` | boolean/null | Whether a DATA transmission is a retry. |
 | `integrity_verified` | boolean/null | Actual SHA-256 comparison result when performed. |
+| `impairment_decision_index` | integer/null | Transfer-local simulator decision ID; links a delayed datagram to its later delivery or cancellation. |
+| `impairment_delay_ms` | integer/null | Configured fixed receive delay for an impairment decision, not measured RTT. |
 
 Logs never contain DATA payload contents, file contents, authentication data, or unnecessary
 absolute file paths.
@@ -87,6 +98,49 @@ An attempt event is recorded before `UdpChannel.send`. Its corresponding emissio
 only after the socket send succeeds, using the encoded length also observed by endpoint emission
 metrics. Logging does not decide packet acceptance, ACK progress, retransmission, file writes,
 integrity, or terminal success.
+
+### Controlled impairment observations
+
+The implemented mechanism is `RECEIVE_DELIVERY_V1`, a receive-side shim enabled
+explicitly in each process. It applies seeded random loss to eligible inbound
+DATA at the receiver and fixed delay to eligible inbound DATA at the receiver
+and ACK at the sender. Controls are unaffected. Eligibility checks the established
+peer and transfer UUID, binary framing and CRC; the engines still enforce sequence
+and accepted-file payload rules. This is fixed per-direction delay, not jitter or
+a measured RTT. Use matching enabled profiles at both endpoints for reconciliation.
+
+The event stream includes `IMPAIRMENT_STARTED`, `IMPAIRMENT_DROPPED`,
+`IMPAIRMENT_DELAYED`, `IMPAIRMENT_DELIVERED`, `IMPAIRMENT_CANCELLED`,
+`IMPAIRMENT_FAILED` and `IMPAIRMENT_FINISHED`. Decision events are `INBOUND`;
+scope start/finish events are `LOCAL`. Cancelled queued datagrams and queue
+failures are distinct from configured random DATA drops.
+
+Current counting and configuration rules are:
+
+- `packets_sent` counts sender DATA attempts, including retries, before socket
+  send. Receive-side drops have already been emitted and remain in sender UDP
+  emission accounting.
+- `packets_received` counts DATA reaching the receiver engine and passing peer,
+  transfer, framing, sequence, CRC and expected-payload-length validation,
+  including valid duplicates and ahead-of-gap arrivals. It excludes shim drops.
+- `packets_dropped` is the receiver's observed random DATA-drop count when its
+  impairment scope started, including an observed zero. It remains null with a
+  reason without that evidence; sender-only scope cannot supply receiver drops.
+  Reconciliation takes this field from the receiver for `RECEIVE_DELIVERY_V1`.
+- `packet_loss_rate` is configured DATA loss percentage (0–100), and `delay_ms`
+  is configured fixed delay per affected direction. `scenario`,
+  `impairment_seed` and `impairment_mechanism` identify the actual profile.
+  They do not establish observed loss, throughput or RTT. An enabled zero-loss,
+  zero-delay profile supplies observations; disabled or unobserved settings must
+  not be silently converted from null to zero.
+- Endpoint configuration retains sender DATA/window/handshake settings separately
+  from receiver initial/inactivity/completion-grace timeouts. A value unavailable
+  at that endpoint remains null; the sender's `timeout_ms` is the DATA retry timer.
+
+Saved [focused validation](target/evaluation/controlled-impairment-20260925-134232-676/validation.json)
+and [independent transfer checks](target/evaluation/controlled-impairment-20260925-134232-676/independent-transfer-checks.json)
+cover baseline, 2% loss, fixed delay, timeout recovery, a larger window and bounded
+complete-loss failure. These establish capability, not Person 4's completed matrix.
 
 ## Run state and finalization
 
@@ -203,8 +257,23 @@ throughput_mbps = payload_bytes_delivered * 8 / (transfer_time_sec * 1,000,000)
 `MetricsCalculator` performs throughput, retransmission ratio, and overhead calculations.
 RTT values are persisted eligible original-DATA-to-single-ACK sender samples; no
 cross-host clock arithmetic or timeout/delay inference is used. Unknown values are JSON
-null with field-specific entries in `unavailable_reasons`. For example,
+null and require field-specific entries in `unavailable_reasons`. For example,
 `packets_dropped` remains null without active observed drop evidence.
+
+### Missing-reason propagation repair
+
+The September 25 defect is repaired in the working tree. Reconciliation preserves
+the supplying endpoint's reasons for null RTT count/mean/p95 and other copied
+metrics, and supplies a reason when the retransmission ratio has no valid
+denominator. The strict REAL provider still rejects genuinely missing reasons.
+Saved [repair validation](target/evaluation/metrics-null-reasons-20260925-131319-640/validation.json)
+records 74 passing focused tests, including reconciliation/provider paths, with
+the pre-fix failures preserved separately.
+
+After a successful original DATA emission starts sampling, zero eligible samples
+means count zero and null mean/p95 with reasons. Without an original DATA emission,
+sampling/count is unavailable. An empty file sends one zero-length DATA packet;
+empty size alone therefore does not imply zero attempts or unavailable RTT.
 
 Sender-confirmed `transfer_success` and receiver-observed `integrity_verified` remain
 separate. A handled failed transfer can retain finalized partial measurements and be
@@ -240,8 +309,9 @@ external source references, duplicate candidates, and application/protocol ident
 rejected. Natural-language input and GPT output are not evidence paths and are not accepted by this
 API.
 
-`RealMetricsSummaryProvider` is the Stage 4 read-only adapter from this repository to the
-explanation evidence model. Its typed lookup requires the trusted application ID, sender run ID,
+`RealMetricsSummaryProvider` is the Stage 4 adapter from this repository to the
+explanation evidence model. It preserves original endpoint records; repository
+lookup can create a new reconciled summary. Its typed lookup requires the trusted application ID, sender run ID,
 and protocol UUID and preserves repository outcomes as `AVAILABLE`, `PENDING`, `INCOMPLETE`,
 `UNAVAILABLE`, or `REJECTED`. Only `AVAILABLE` is converted. The conversion explicitly copies the
 26 supported numeric metrics, their units, observed/configured classification, and existing
@@ -249,10 +319,16 @@ unavailable reasons; it does not calculate missing values. Provenance, endpoint 
 outcomes, identities, schema versions, receiver-local integrity, and validated source references
 remain typed metadata outside the numeric field list.
 
+The explanation HTTP request contains these projected fields and metadata with
+source-reference identifiers. It does not include the raw event-log contents or
+their timeline, nor all persisted configuration/supporting observations.
+
 `ExplanationFlow` can now consume this provider through its typed trusted-selection lookup. A REAL
 summary reaches the explanation client only when it is `AVAILABLE`, REAL, complete, final,
 identity-matched, on a supported schema and definition version, and scoped as `SENDER_FINAL`,
-`RECEIVER_FINAL`, or `RECONCILED`. Typed `PENDING`, `INCOMPLETE`, `UNAVAILABLE`, and `REJECTED`
+`RECEIVER_FINAL`, or `RECONCILED`. The ordinary provider supplies sender-final or
+reconciled evidence; receiver-final is recognized by the wider contract but is
+not produced by this provider. Typed `PENDING`, `INCOMPLETE`, `UNAVAILABLE`, and `REJECTED`
 results retain their reason and do not invoke the client. Existing synthetic fixtures retain
 `SYNTHETIC_FIXTURE` scope and their fixture-only definition version; neither evidence source can be
 used as a fallback for the other.
@@ -273,6 +349,20 @@ timestamp. It contains no unnecessary absolute local paths.
 
 ## Consumer rules
 
+### Separate API evaluation capture
+
+The console's `-Dnettransfer.evaluation.record=true` option writes a fresh
+`target/evaluation/llm-...` directory with safe request/response bodies, available
+usage, HTTP-attempt timing/failure observations and Java decisions. This capture
+is separate from endpoint metric logs; recording completion does not establish
+model correctness. Missing response bodies or usage remain unavailable.
+Saved [capture validation](target/evaluation/api-evidence-capture-20260925-151307-190/validation.json)
+records 341 passing focused tests and a packaged startup check. The completed
+live checks and retained prose limitations are listed in the
+[README checkpoint](README.md#current-evaluation-checkpoint).
+
+### Transfer evidence consumers
+
 Consumers should read only independently parseable JSONL lines and consult `run-state.json` before
 treating a local log as complete. Sender and receiver records can have different run IDs and wall
 clocks. They are not joined by filename, timestamp, or directory placement.
@@ -285,8 +375,10 @@ Metrics export itself does not implement GPT calls, prompt construction, impairm
 or natural-language interpretation. Only an `AVAILABLE` provider result may cross into the
 separate explanation client; all other typed results remain local Java status and reason output.
 
-For end-to-end verification, start a receiver and sender with a fresh source and
-destination plus a shared `nettransfer.logsRoot`, confirm both processes terminate,
+For later end-to-end verification with direct Main, start a receiver and sender
+with a fresh source and destination plus a shared `nettransfer.logsRoot`. For a
+console sender, use its `<projectRoot>/logs` root for the receiver as well.
+Confirm both processes terminate,
 compare source and destination SHA-256 hashes, inspect both finalized run states and
 endpoint records, invoke `reconcile`, then parse the summary and manifest and confirm
 every referenced relative path resolves.

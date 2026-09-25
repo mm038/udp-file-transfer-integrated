@@ -16,6 +16,7 @@ public final class TransferConfiguration {
     private final Double delayMs;
     private final String scenario;
     private final Long impairmentSeed;
+    private final String impairmentMechanism;
     private final Long startHandshakeTimeoutMs;
     private final Long startRetryLimit;
     private final Long finishHandshakeTimeoutMs;
@@ -34,6 +35,7 @@ public final class TransferConfiguration {
         delayMs = nonNegativeFinite("delayMs", builder.delayMs);
         scenario = optionalText("scenario", builder.scenario);
         impairmentSeed = builder.impairmentSeed;
+        impairmentMechanism = optionalText("impairmentMechanism", builder.impairmentMechanism);
         startHandshakeTimeoutMs = positive("startHandshakeTimeoutMs", builder.startHandshakeTimeoutMs);
         startRetryLimit = nonNegative("startRetryLimit", builder.startRetryLimit);
         finishHandshakeTimeoutMs = positive("finishHandshakeTimeoutMs", builder.finishHandshakeTimeoutMs);
@@ -60,6 +62,7 @@ public final class TransferConfiguration {
                 .delayMs(delayMs)
                 .scenario(scenario)
                 .impairmentSeed(impairmentSeed)
+                .impairmentMechanism(impairmentMechanism)
                 .startHandshakeTimeoutMs(startHandshakeTimeoutMs)
                 .startRetryLimit(startRetryLimit)
                 .finishHandshakeTimeoutMs(finishHandshakeTimeoutMs)
@@ -113,6 +116,7 @@ public final class TransferConfiguration {
     public Double getDelayMs() { return delayMs; }
     public String getScenario() { return scenario; }
     public Long getImpairmentSeed() { return impairmentSeed; }
+    public String getImpairmentMechanism() { return impairmentMechanism; }
     public Long getStartHandshakeTimeoutMs() { return startHandshakeTimeoutMs; }
     public Long getStartRetryLimit() { return startRetryLimit; }
     public Long getFinishHandshakeTimeoutMs() { return finishHandshakeTimeoutMs; }
@@ -131,6 +135,7 @@ public final class TransferConfiguration {
         private Double delayMs;
         private String scenario;
         private Long impairmentSeed;
+        private String impairmentMechanism;
         private Long startHandshakeTimeoutMs;
         private Long startRetryLimit;
         private Long finishHandshakeTimeoutMs;
@@ -150,6 +155,7 @@ public final class TransferConfiguration {
         public Builder delayMs(Double value) { delayMs = value; return this; }
         public Builder scenario(String value) { scenario = value; return this; }
         public Builder impairmentSeed(Long value) { impairmentSeed = value; return this; }
+        public Builder impairmentMechanism(String value) { impairmentMechanism = value; return this; }
         public Builder startHandshakeTimeoutMs(Long value) { startHandshakeTimeoutMs = value; return this; }
         public Builder startRetryLimit(Long value) { startRetryLimit = value; return this; }
         public Builder finishHandshakeTimeoutMs(Long value) { finishHandshakeTimeoutMs = value; return this; }

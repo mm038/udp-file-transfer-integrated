@@ -1,30 +1,46 @@
 # Connecting measurements to the LLM interface
 
-Person 3 to Person 2 | Coordination note | Updated 22 September 2026
+Person 3 to Person 2 | Historical coordination note from 22 September 2026
 
-## The main request
+## Current integrated status (25 September 2026)
 
-The natural-language interface can already start a real transfer, report its basic state, and interpret questions. To display detailed progress and explain real network behaviour, it needs your actual measurements and a reliable way to associate them with the correct transfer.
+This note preserves the original repository's pre-integration handoff and live-evaluation history. It is not the operating guide for `udp-file-transfer-integrated` at `feature/metrics-llm-integration`, commit `985b1a8`. That integrated version connects the engine, live observations, endpoint logs, reconciliation, REAL summary provider and explanation flow. The active prompts are `commands-v2` / `explanations-v6`, with `gpt-5-mini`. REAL explanations are supported when validated evidence is available; they are no longer unconditionally blocked.
+
+Use the [README evaluation checkpoint](../README.md#current-evaluation-checkpoint), [LOGGING.md](../LOGGING.md) and the saved final validation/review files for current behavior and verification limits. Evaluation Sections 3-6 are complete. Section 7 found the integrated system ready for Person 4's required experiments, with the limitations below; this does not complete the experiment matrix or submission. The [Stage 7 acceptance record](stage-7-acceptance.md) concerns an implementation stage, not evaluation Section 7.
+
+- The four inspection gaps are resolved in saved validation: [unavailable metric reasons](../target/evaluation/metrics-null-reasons-20260925-131319-640/validation.json), [controlled impairment](../target/evaluation/controlled-impairment-20260925-134232-676/validation.json), [DATA framing](../target/evaluation/data-framing-20260925-161314-533/validation.json), and [bounded API retry/evidence capture](../target/evaluation/api-evidence-capture-20260925-151307-190/validation.json).
+- A-C passed transfer acceptance with verified receiver contents. A demonstrated [natural-language start and explanation selection](../target/evaluation/section5-run-a-32768-20260925-204658-930498/validation.json); C demonstrated [genuinely active natural-language status](../target/evaluation/section5-run-c-delay200-20260925-211634-307439/natural-language-status-review.json). Section 6 demonstrated [clarification with retained context](../target/evaluation/section6-clarification-prep-20260925-215444-525297/validation.json) and [unsupported-operation nonexecution](../target/evaluation/section6-unsupported-prep-20260925-221110-460830/validation.json). The live model's refusal and the existing offline deterministic Java rejection are separate evidence.
+- A's original explanation remains [REQUIRES_CORRECTION](../target/evaluation/section5-run-a-32768-20260925-204658-930498/explanation-review.json): its combined sender/receiver UDP emissions were incorrectly attributed to the sender, with other unsupported claims. Its transfer measurements remain valid; the original response and failed review are deliberately preserved as a documented limitation. [B](../target/evaluation/section5-run-b-loss2-20260925-210849-739240/explanation-review.json), [C](../target/evaluation/section5-run-c-delay200-20260925-211634-307439/explanation-review.json), and [D](../target/evaluation/section5-run-d-unavailable-20260925-212915-115426/explanation-review.json) passed assignment-minimum prose review with minor presentation caveats. Use verified measurements for comparisons and reviewed explanations for presentation; reviewer corrections are not original model output.
+- [D's bounded-failure acceptance passed](../target/evaluation/section5-run-d-unavailable-20260925-212915-115426/validation.json), with transfer FAILED and integrity UNCONFIRMED. Live integrity FAILED remains NOT EXERCISED. No identified issue requires a code fix or paid regeneration of A before Person 4 starts experiments.
+- PENDING PERSON 4/team: small and large files in baseline, at least 2% random loss, and meaningful delay or jitter, plus the required timeout/window comparison, report, protocol specification and demonstration. The six size/scenario combinations follow from assignment coverage; the evaluation plan's eight-run proposal is a team design, not an instructor-mandated run count. Completed capability checks do not constitute those final deliverables.
+
+These evidence links point to local ignored `target/` files and must be shared separately when handing off the repository. Earlier preparation/session-result statuses and remaining-work lists may be stale; use the final validation and semantic-review files above.
+
+The historical sections below retain the September 20-22 original-repository coordination context; updates explicitly refer to the integrated version. Preserve the earlier paid-call results, prompt versions and evidence paths as historical evidence; they do not establish current v6 quality.
+
+## Historical request before integration
+
+At this historical checkpoint, the natural-language interface could start a real transfer, report its basic state, and interpret questions. Detailed progress and real measured explanations still needed actual measurements and a reliable association with the correct transfer.
 
 The complete revised metric and supporting-field set is already accepted. This note does not ask to approve that scope again. It summarises the contracts to check when connecting our components.
 
-Current handoff status: the user reports that Person 2 has completed metrics/logging on her branch and will take over the merge and real-log connection. Her implementation has not been inspected or merged in this workspace. The requirements below are integration checks against that work, not a claim that she still needs to build every listed item.
+Handoff status on September 22 in the original repository: the user reported that Person 2 had completed metrics/logging on her branch and would take over the merge and real-log connection. Her implementation had not been inspected or merged there. The requirements below recorded checks for that integration; they do not mean those components remain absent from the integrated repository.
 
-September 22 Git inspection found `feature/LLM-integration` at `ca5990c`, “Added live evaluation and reviewed handoff findings”. The original milestone 8 implementation/documents are committed, and the user reports that commit was pushed; no fresh remote fetch verification is claimed here. The deliberate local deletion of `docs/person-3-handoff.md` remains excluded and preserved; `data/` remains untracked and `target/` evidence remains local. The new September 22 corrections are uncommitted.
+September 22 Git inspection in the original repository found `feature/LLM-integration` at `ca5990c`, “Added live evaluation and reviewed handoff findings”. The original milestone 8 implementation/documents were committed, and the user reported that commit was pushed; no fresh remote fetch verification was claimed. At that checkpoint, the deliberate local deletion of `docs/person-3-handoff.md` was excluded and preserved, `data/` was untracked, `target/` evidence was local, and the new September 22 corrections were uncommitted. These are historical original-workspace facts, not this integrated checkout's Git state.
 
-## Live evaluation already performed
+## Historical live evaluation in the original repository
 
 The user ran a bounded smoke batch and a follow-up synthetic explanations batch with gpt-5-mini on September 21. Saved outputs were reviewed by the assistant with an independent second review. Real natural-language start/basic status, clarification, unsupported-operation restrictions and deterministic Java rejection passed, with minor command wording notes. The real sample was 36 bytes and completed with VERIFIED integrity and matching SHA-256 hashes.
 
 The smoke run stopped on a 30-second explanation API timeout. All four follow-up explanations completed using a 90-second HTTP deadline. Although their automatic reference checks passed, all four were flagged for semantic/causal wording corrections: delivery bytes presented as integrity evidence; an inferred timeout-to-resend causal link; asserted corruption without cause/timing evidence; and an unsupported reason for UNCONFIRMED plus confusion between repeated ACKs and distinct acknowledged progress. These are historical interface/explanation findings, not evidence that Person 2's producer implementation failed. No real producer logs were used in these explanation tests.
 
-Results are relative to the repository root:
+These evidence paths are relative to the original `udp-file-transfer` repository root, not this integrated checkout. They are preserved historical locations, not a claim that the ignored evidence folders were copied here:
 
 - Smoke: target/milestone-8-eval/2026-09-21T17-04-41.966257700Z-14171895076588930966/
 - Explanations: target/milestone-8-eval/2026-09-21T17-14-14.616125800Z-17071091827319850136/
 - September 22 v4 explanations retest: target/milestone-8-eval/2026-09-22T06-58-35.590646700Z-9150417386280831162/
 
-Each contains the original report.jsonl and completed review.md. report.jsonl retains its original pre-review PENDING labels; the worksheet records the later review. target/ is ignored by Git, so these folders must be shared separately if needed. [The repository handoff](repository-and-milestone-handoff.md) contains the portable test summary, model/usage details, repo guide and current milestone status. Its historical Word copy, this note's Word copy and `Metrics_Summary_Revised.docx` are currently locally deleted; those deletions are preserved. Use the Markdown documents for current status.
+Each historical evidence folder contains the original report.jsonl and completed review.md. report.jsonl retains its original pre-review PENDING labels; the worksheet records the later review. target/ is ignored by Git, so these folders must be shared separately if needed. [The repository handoff](repository-and-milestone-handoff.md) contains the historical portable test summary and model/usage details. The September 22 original-workspace record reported local deletion of its Word copy, this note's Word copy and `Metrics_Summary_Revised.docx`; that is not a statement about this checkout's Git status. Use the current-status links above for integrated guidance.
 
 Person 3's first September 22 correction changed only `ExplanationRequest.java` production prompt instructions to `explanations-v4`: delivery is separate from integrity, repeat ACK arrivals are separate from distinct DATA progress, and aggregate counts cannot establish a causal event sequence. Causal hypotheses must themselves be uncertain and identify missing evidence; an empty hypothesis list is allowed. State/integrity are supplied outcome facts for limitations, not invented numerical references or proof of a cause/timing. Explicit synthetic labeling and endpoint attribution are also reinforced. Numeric citations, missing-value reasons, tool-free explanations and Java validation are preserved. The September 21 live results used `commands-v2` / `explanations-v3`; they are not evidence of v4 behaviour.
 
@@ -32,13 +48,13 @@ The user previewed and deliberately ran the four-call explanations retest on Sep
 
 Remaining findings prevent a blanket full PASS: unsupported diagnostic uses of emitted-byte totals; missing-performance's omitted SYNTHETIC label and mixed-endpoint heading; an unclear failed-verification conclusion; and unconfirmed-outcome's final cannot-answer statement after correctly explaining that counters cannot prove success/integrity. FAILED is preserved without inventing a literal mismatch or its cause. See [the milestone 8 record](person-3-milestone-8.md) and the new `review.md` for details, usage and prior offline verification. No additional source fixes, tests or paid calls were made during this review; the historical 603-test/32-class packaging checkpoint remains historical.
 
-Following the review, the user authorized a narrow refinement; current source uses `explanations-v5`. Diagnostic suggestions must identify evidence capable of testing the claim: aggregate emission totals alone do not establish DATA drops or verify contents. The prompt directly answers what the supplied evidence establishes even when the cause is unknown, preserves FAILED as reported failed verification without inventing a checksum mismatch, places explicit evidence provenance (including SYNTHETIC test fixture when applicable) in limitations, and preserves per-field counter meanings and endpoint attribution throughout the prose. These are general interpretation rules, not a new producer contract.
+Following the historical review, the user authorized a narrow refinement to `explanations-v5`. Diagnostic suggestions had to identify evidence capable of testing the claim: aggregate emission totals alone do not establish DATA drops or verify contents. The prompt directly answered what the supplied evidence establishes even when the cause is unknown, preserved FAILED as reported failed verification without inventing a checksum mismatch, placed explicit evidence provenance (including SYNTHETIC test fixture when applicable) in limitations, and preserved per-field counter meanings and endpoint attribution throughout the prose. These were general interpretation rules, not a new producer contract. The integrated source now uses v6.
 
-The v5 refinement is uncommitted and not live-tested; no additional paid calls were made. See [the milestone 8 record](person-3-milestone-8.md) for its separate offline verification status. Existing live reports/reviews remain unchanged historical v3/v4 evidence. Model selection remains `gpt-5-mini`, and the application timeout default is unchanged.
+At that original-repository checkpoint, the v5 refinement was uncommitted and not live-tested; no additional paid calls were made. See [the milestone 8 record](person-3-milestone-8.md) for its historical offline verification status. Existing live reports/reviews remain unchanged historical v3/v4 evidence. Model selection remained `gpt-5-mini`, and that refinement did not change the application timeout default.
 
-Milestone 8 remains open. Pause further paid retesting until Person 2's merge and genuine-log connection are available and the actual inputs, contracts, identities and outcomes have been checked. Then choose a small test with a fresh deliberate call budget/deadline and review the actual returned prose against only model-visible evidence. The existing four-call explanations batch is synthetic and cannot by itself validate real integration. Broader command coverage remains pending outside this correction task. The delegated merge/log connection is still Person 2's work; this task changes no engine, producer logging/calculations or real evidence connection and stops before milestone 9. Real measured explanations and impairment testing still require the integrated system, and the real `EVIDENCE_UNAVAILABLE` gate remains unchanged.
+Milestone 8 remained open at that historical checkpoint. Further paid retesting was paused pending the merge, genuine-log connection and checks of actual inputs, contracts, identities and outcomes. The existing four-call explanations batch is synthetic and cannot by itself validate real integration. The blanket REAL `EVIDENCE_UNAVAILABLE` gate described in that handoff has since been replaced by validated REAL evidence handling in the integrated version. The integrated evaluation has now completed Sections 3-6; use the current-status assessment above instead of this historical milestone's pending list. Any later paid work still requires approval, bounded calls and review against only model-visible evidence.
 
-## Who owns which part?
+## Historical ownership and handoff responsibilities
 
 | Area | Responsibility |
 | --- | --- |
@@ -47,7 +63,7 @@ Milestone 8 remains open. Pause further paid retesting until Person 2's merge an
 | Loading the supplied records, checking identity and meanings, displaying results and sending evidence to GPT | Existing Person 3 interface; the user has now delegated merge and real-log connection to Person 2. Person 3 retains review/testing participation. |
 | Explanation wording corrections found in live evaluation | Person 3 implemented the September 22 v4 correction and reviewed the user-run retest. Original errors did not recur in that sample. The subsequent v5 refinement addresses residual findings but is not live-tested; validation remains open, independently of the delegated merge/log connection. |
 
-Stage 11 instrumentation was still pending at the historical progress-document checkpoint. Check Person 2's actual completed branch for its present implementation. This does not mean the engine lacks the underlying transfer operations. The progress document's older provider plans and unstarted LLM stages do not describe the current interface.
+Stage 11 instrumentation was still pending at the historical progress-document checkpoint. Instrumentation is implemented and exercised in the integrated version; [LOGGING.md](../LOGGING.md) defines its behavior and the current-status evidence above records the completed checks and remaining experiment coverage. The progress document's older provider plans and unstarted LLM stages do not describe the current interface.
 
 ## What a hook means
 
@@ -64,7 +80,7 @@ Person 2's instrumentation should be checked against the Stage 11 event points, 
 - Selecting the right evidence needs a verified association between application, protocol and experiment identities.
 - The final impaired demo needs a working impairment setup and actual collected logs to show beside the explanation.
 
-Basic real starts/status, Java rejection, offline regression checks and explicitly labelled synthetic GPT evaluation can continue independently. Currently, a real explanation returns EVIDENCE_UNAVAILABLE before the explanation API call. Fixtures will never fill missing real evidence.
+In the original pre-integration interface, basic real starts/status, Java rejection, offline regression checks and explicitly labelled synthetic GPT evaluation could proceed independently, but a real explanation returned EVIDENCE_UNAVAILABLE before the explanation API call. The integrated flow now supports validated REAL records. Fixtures must never fill missing real evidence.
 
 <!-- pagebreak -->
 
@@ -74,7 +90,7 @@ Record what happened, where it happened and which run it belongs to. Keep instru
 
 | Observation | What it supports |
 | --- | --- |
-| DATA send attempt and actual UDP emission, with sequence, attempt number and encoded byte length | Original sends versus resends; actual emitted-byte accounting. A simulator-suppressed attempt is not an emission. |
+| DATA send attempt and actual UDP emission, with sequence, attempt number and encoded byte length | Original sends versus resends; actual emitted-byte accounting. Current receive-side impairment drops already-emitted DATA at receiver delivery, so these drops remain sender emissions. |
 | Receiver DATA arrival, validation, duplicate/out-of-order outcome, and unique bytes accepted/written | Arrival counts versus unique delivered payload; duplicate counts and evidence of invalid or discarded traffic. |
 | DATA-ACK arrival and validation, plus new cumulative ACK progress | ACK arrivals versus distinct acknowledged DATA sequences and unique sender-confirmed progress. Repeated ACKs must not add progress. |
 | Detected DATA deadline expiry and recovery/resend decisions | Timeout occurrences versus resend counts and consecutive recovery rounds. A socket polling timeout alone is not a DATA expiry. |
@@ -87,7 +103,7 @@ For live status, provide a documented way to obtain a consistent snapshot or con
 
 ## Transfer identity must be trustworthy
 
-The interface currently creates application transfer_id/run_id values. The engine separately creates its wire UUID internally. Person 2's experiment_id may be a label rather than a UUID.
+The original interface created application transfer_id/run_id values while the engine separately created its wire UUID internally. The integrated version carries and validates the association between application, endpoint-run and protocol identities; see [LOGGING.md](../LOGGING.md). An experiment_id may still be a label rather than a UUID. The following were the original association requirements:
 
 - Associate experiment_id, application run/transfer IDs and the wire protocol_transfer_id through actual execution evidence or a trusted manifest.
 - Supplying the engine UUID from the application or exposing the internally created UUID are both possible approaches. Neither requires a protocol redesign.
@@ -114,7 +130,7 @@ Also carry the accepted supporting information: experiment identity and verified
 ## Meanings the interface must preserve
 
 - transfer_time_sec uses seconds; throughput_mbps uses decimal megabits/second. Delay and RTT use milliseconds. Preserve supplied precision and document export rounding.
-- packet_loss_rate is configured DATA loss percentage. packets_dropped records the identified simulator's drops; neither retransmissions nor sent-minus-received establishes all network loss.
+- packet_loss_rate is configured DATA loss percentage. In current RECEIVE_DELIVERY_V1, packets_dropped records already-emitted DATA dropped at receiver delivery. Configured delay applies separately to receiver DATA delivery and sender ACK delivery; it is not measured RTT. Neither retransmissions nor sent-minus-received establishes all network loss.
 - acks_received counts ACK arrivals, including repeats. It is not packets_acked or payload_bytes_delivered. Cumulative ACKs can confirm multiple sequences.
 - The retry limit concerns consecutive recovery rounds without progress. It is not the lifetime number of retransmitted packets.
 - Missing measurements are null with reasons. Zero means an observed zero. Do not infer missing values to make a summary look complete.
@@ -126,7 +142,9 @@ The revised document gives working formulas and counting/timing boundaries. Reso
 
 <!-- pagebreak -->
 
-## Concrete handoff needed for integration
+## Historical handoff checklist for integration
+
+The integrated implementation now supplies endpoint event JSONL, run-state files, endpoint records, reconciliation and a REAL provider. See [LOGGING.md](../LOGGING.md) for the implemented schema and paths. The original requested deliverables below remain useful review criteria, not a list of entirely absent components.
 
 - Actual machine-readable raw event logs, separate from per-transfer summaries. A summary row does not replace packet/event evidence.
 - Finalized summary records for successful and failed runs, with linked supporting logs. Include available partial observations on failure rather than reporting successful-file metrics.
@@ -141,17 +159,17 @@ Provide reproducible configuration and commands for the impairment mechanism you
 
 The assignment requires small and large files in each of: a baseline with low delay/no intentional loss; at least 2% random loss; and meaningful added delay or jitter. It also requires at least three raw metric logs and reproducibility commands/scripts. These experiments support the evaluation report; the instructor demonstration can show selected runs and their actual evidence.
 
-Person 3 needs a rehearsed loss/delay run with real measurements for the final explanation demonstration. Engine recovery and receiver restart/output protection for the chosen scenarios remain coordination with Person 1. The current receiver handles one transfer per process, so restart it and use a fresh output path for each run until that behaviour changes.
+The controlled impairment mechanism and live explanations have been exercised: [B's transfer validation](../target/evaluation/section5-run-b-loss2-20260925-210849-739240/validation.json) covers configured 2% receiver DATA loss and [C's transfer validation](../target/evaluation/section5-run-c-delay200-20260925-211634-307439/validation.json) covers 200 ms delivery delay in each direction. A-C used the same 262,267-byte file, 8192-byte window and 500 ms DATA timeout; they do not complete small/large coverage or the timeout/window comparison. Person 4's experiment matrix and the team's final demonstration rehearsal remain pending. The current receiver handles one transfer per process, so restart it and supply a fresh bare output filename for each run; the receiver writes under `storage/incoming`.
 
-## Remaining connection work delegated to Person 2
+## Historical connection work delegated to Person 2
 
-Merge the branches and resolve conflicts while preserving the Java validation/evidence boundaries. Implement the read-only real-summary provider; connect observed status; validate identity, provenance, field semantics and consistency; reconcile sender outcome with integrity evidence; display measurements beside the GPT explanation; and test matching, missing, failed and inconsistent records. Real evidence integration will deliberately replace the current REAL-evidence gate after verification. The accepted synthetic fixtures are not a producer schema to copy blindly. Person 3 will review behaviour and participate in final testing. This note does not perform the merge or integration.
+The handoff requested a merge preserving the Java validation/evidence boundaries, a read-only real-summary provider, observed status, identity/provenance/semantic checks, outcome reconciliation, and displayed evidence beside the explanation. These connections now exist in the integrated version; [Stage 7](stage-7-acceptance.md) records offline acceptance and its limits. The accepted synthetic fixtures remain separate from genuine producer records. The current-status section above supersedes historical open inspection, controlled-impairment and live-prose evaluation claims while retaining A's actual review failure and the remaining assignment work.
 
 ## References and status
 
 - Assignment 1 FTP UDP(1).pdf, pages 2-3: interface, observability, experiments and required demonstration.
 - docs/Metrics_Summary_Revised.md: accepted field inventory and working definitions.
-- docs/repository-and-milestone-handoff.md and docs/person-3-milestone-8.md: current interfaces, live results, boundaries and pending integration.
+- docs/repository-and-milestone-handoff.md and docs/person-3-milestone-8.md: historical original-repository interfaces, live results, boundaries and pending integration at those checkpoints.
 - Implementation Progress.docx: historical engine completion through Stage 10.5; Stage 11 instrumentation pending.
 
-This is a coordination note, not verification of Person 2's reported completed implementation or a claim that real measured integration is complete here. It creates no additional metric-scope approval step. The small milestone 8 live evaluation has been run and reviewed with open findings; milestone 9 integration has not been implemented by this note.
+This historical coordination note creates no additional metric-scope approval step. Its small milestone 8 live evaluation was reviewed with open findings. Integrated implementation and verification status are recorded separately in the current-status links at the top; updating this note does not perform or complete the remaining evaluation.

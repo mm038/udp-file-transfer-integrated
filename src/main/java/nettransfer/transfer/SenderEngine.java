@@ -65,6 +65,7 @@ public class SenderEngine implements LiveMetricsProvider {
     private volatile TransferContext transferContext;
     private volatile MetricsCollector metricsCollector;
     private volatile EventLogger eventLogger = EventLogger.disabled();
+    private TransferImpairmentLifecycle impairmentLifecycle;
 
     public SenderEngine(UdpChannel channel, InetAddress destAddress, int destPort,
                          int chunkSize, int windowSize, int timeoutMillis, int retryLimit) {
@@ -126,6 +127,7 @@ public class SenderEngine implements LiveMetricsProvider {
     }
 
     public TransferResult sendFile(String filePath) throws IOException {
+        impairmentLifecycle = null;
         transferContext = transferContext.toBuilder()
                 .protocolTransferId(null)
                 .originalFilename(null)
@@ -156,6 +158,8 @@ public class SenderEngine implements LiveMetricsProvider {
             transferContext = transferContext.withProtocolTransferId(
                     UUID.fromString(start.getTransferId()));
             metricsCollector.updateContext(transferContext);
+            impairmentLifecycle = TransferImpairmentLifecycle.begin(channel, transferContext,
+                    metricsCollector, eventLogger, destAddress, destPort);
             TransferResult handshakeFailure = awaitStartAcknowledgement(start);
             if (handshakeFailure != null) {
                 return terminal(handshakeFailure);
@@ -254,6 +258,7 @@ public class SenderEngine implements LiveMetricsProvider {
             metricsCollector.observeSenderAwaitingFinish();
             return terminal(sendFinishAndAwaitVerification(filePath, start.getTransferId()));
         } catch (IOException | RuntimeException exception) {
+            finishImpairment();
             metricsCollector.observeError();
             channel.setSuccessfulSendObserver(null);
             String reason = describeException(exception);
@@ -344,7 +349,8 @@ public class SenderEngine implements LiveMetricsProvider {
         TransferContext.Builder context = supplied == null
                 ? TransferContext.builder(TransferContext.Endpoint.SENDER)
                 : supplied.toBuilder();
-        TransferConfiguration effective = configuration.build();
+        TransferConfiguration effective = TransferImpairmentLifecycle.effectiveConfiguration(
+                configuration.build(), channel.getImpairmentSettings());
         context.configuration(effective)
                 .unavailableReason("protocol_transfer_id", "not yet established")
                 .unavailableReason("file_size_bytes", "input file not yet opened")
@@ -568,6 +574,7 @@ public class SenderEngine implements LiveMetricsProvider {
     }
 
     private TransferResult terminal(TransferResult result) {
+        finishImpairment();
         String reason = result.getFailureReason() == null
                 ? result.getMessage()
                 : result.getFailureReason().name();
@@ -585,6 +592,12 @@ public class SenderEngine implements LiveMetricsProvider {
                         .failureReason(success ? null : reason).build());
         eventLogger.finalizeSession(metricsCollector.liveSnapshot(),
                 success, success ? null : reason);
+    }
+
+    private void finishImpairment() {
+        if (impairmentLifecycle != null) {
+            impairmentLifecycle.finish();
+        }
     }
 
     private void log(EventType type, TransferEvent.Direction direction,

@@ -132,7 +132,16 @@ public final class RealMetricsSummaryProvider implements SummaryProvider {
                 receiverIntegrity,
                 failureCategory(failureReason),
                 failureReason,
-                references);
+                references,
+                "RECEIVE_DELIVERY_V1".equals(metrics.getImpairmentMechanism())
+                        ? new RecordedSummary.ImpairmentMetadata(metrics.getImpairmentMechanism(),
+                        metrics.getScenario(), metrics.getImpairmentSeed(),
+                        "Receiver incoming valid peer/UUID DATA: seeded random loss then fixed delay. "
+                                + "Sender incoming valid peer/UUID DATA ACK: fixed delay only. "
+                                + "Delay applies once per direction; START/FINISH controls and unrelated traffic are unchanged. "
+                                + "Seed reproduces decisions for the same eligible arrival sequence, not OS scheduling.",
+                        scope == RecordedSummary.EvidenceScope.RECONCILED)
+                        : null);
 
         return new RecordedSummary(
                 selection.runId(),
@@ -152,6 +161,7 @@ public final class RealMetricsSummaryProvider implements SummaryProvider {
     private static List<RecordedSummary.Field> fields(
             TransferMetrics metrics, RecordedSummary.EvidenceScope scope) {
         List<RecordedSummary.Field> fields = new ArrayList<>(26);
+        boolean receiveImpairment = "RECEIVE_DELIVERY_V1".equals(metrics.getImpairmentMechanism());
         fields.add(observed(metrics, "file_size_bytes", metrics.getFileSizeBytes(), "bytes",
                 "File size recorded in the validated transfer context; not proof of delivery."));
         fields.add(observed(metrics, "payload_bytes_delivered", metrics.getPayloadBytesDelivered(), "bytes",
@@ -161,13 +171,17 @@ public final class RealMetricsSummaryProvider implements SummaryProvider {
         fields.add(observed(metrics, "throughput_mbps", metrics.getThroughputMbps(), "Mbps",
                 scope == RecordedSummary.EvidenceScope.RECONCILED
                         ? "Reconciled delivered-payload rate using receiver bytes and sender duration; not ACK-based sender rate."
-                        : "Sender ACK-based payload progress rate; not receiver-delivered or reconciled throughput."));
+                        : "Unavailable from sender-only evidence: receiver delivery is required. Live ACK-based rate is a separate field."));
         fields.add(observed(metrics, "packets_sent", metrics.getPacketsSent(), "packets",
                 "Sender DATA attempts including retransmissions."));
         fields.add(observed(metrics, "packets_received", metrics.getPacketsReceived(), "packets",
-                "Receiver valid DATA arrivals including duplicate arrivals; not unique delivery."));
+                receiveImpairment
+                        ? "Receiver engine valid DATA arrivals after simulator delivery, including duplicates; excludes simulator drops, pending/cancelled delays and engine-invalid packets."
+                        : "Receiver valid DATA arrivals including duplicate arrivals; not unique delivery."));
         fields.add(observed(metrics, "packets_dropped", metrics.getPacketsDropped(), "packets",
-                "Observed DATA drops from an identified impairment source; configured loss is not an observation."));
+                receiveImpairment
+                        ? "Valid peer/UUID DATA datagrams discarded at receiver delivery by RECEIVE_DELIVERY_V1; includes repeat arrivals, not all network loss. Requires receiver observations."
+                        : "Observed DATA drops from an identified impairment source; configured loss is not an observation."));
         fields.add(observed(metrics, "retransmissions", metrics.getRetransmissions(), "packets",
                 "Sender DATA retransmission attempts."));
         fields.add(observed(metrics, "acks_received", metrics.getAcksReceived(), "packets",
@@ -181,7 +195,7 @@ public final class RealMetricsSummaryProvider implements SummaryProvider {
         fields.add(observed(metrics, "retransmission_ratio", metrics.getRetransmissionRatio(), "fraction",
                 "Finalized retransmissions divided by DATA attempts; unavailable when its denominator is zero."));
         fields.add(observed(metrics, "udp_payload_bytes_emitted", metrics.getUdpPayloadBytesEmitted(), "bytes",
-                "Actual UDP payload emissions in the stated evidence scope; excludes suppressed sends and headers."));
+                "Successful socket-send UDP payload bytes, including custom protocol headers, controls and retransmitted payload; excludes outer UDP/IP/link headers. Includes datagrams dropped later at receiver delivery."));
         fields.add(observed(metrics, "protocol_overhead_bytes", metrics.getProtocolOverheadBytes(), "bytes",
                 "Reconciled emitted UDP payload bytes minus unique receiver-delivered payload bytes."));
         fields.add(observed(metrics, "protocol_overhead_ratio", metrics.getProtocolOverheadRatio(), "fraction",
@@ -203,9 +217,13 @@ public final class RealMetricsSummaryProvider implements SummaryProvider {
         fields.add(configured(metrics, "retry_limit", metrics.getRetryLimit(), "rounds",
                 "Configured consecutive DATA retransmission rounds allowed without progress."));
         fields.add(configured(metrics, "packet_loss_rate", metrics.getPacketLossRate(), "percent",
-                "Configured simulated DATA loss percentage; not observed packet loss."));
+                receiveImpairment
+                        ? "Configured random drop probability percent per eligible receiver incoming DATA arrival, including retransmissions; not an observed drop fraction."
+                        : "Configured simulated DATA loss percentage; not observed packet loss."));
         fields.add(configured(metrics, "delay_ms", metrics.getDelayMs(), "ms",
-                "Configured outgoing DATA impairment delay; not measured RTT."));
+                receiveImpairment
+                        ? "Configured fixed receive-delivery delay per direction: receiver DATA and sender DATA ACK, after loss decisions; not RTT. Controls unaffected."
+                        : "Configured outgoing DATA impairment delay; not measured RTT."));
         return List.copyOf(fields);
     }
 

@@ -1,18 +1,26 @@
 # Person 2 metric proposal: compatibility review
 
-**Current status, September 21:** this proposal review is historical. The complete revised set is accepted, the separate explanation HTTP client and independent milestone 7 tests are committed, and [milestone 8](person-3-milestone-8.md) adds explicit live evaluation with formal results still pending review. Older scope-agreement, absent-HTTP and paused-milestone passages do not describe current implementation. Actual logs/summaries and shared engine/metrics observation/identity integration remain pending; no field-scope agreement is requested again.
+**Current integrated status, September 25, 2026:** this is a historical proposal review from the original `udp-file-transfer` repository. In `udp-file-transfer-integrated`, branch `feature/metrics-llm-integration` at `985b1a8`, the engine instrumentation, endpoint logs, reconciliation, REAL provider and explanation flow are implemented. The active prompts are `commands-v2` / `explanations-v6`, using `gpt-5-mini`. The earlier blanket REAL-evidence rejection and absent-provider statements below are historical, not current behavior.
 
-**Current status:** the user has confirmed Person 2's agreement to the complete revised metric and supporting-field set. That scope is accepted for future implementation. The review below records the earlier proposal and its evolution; references to pending scope agreement are historical. Actual logs, concrete event/storage/identity integration and measured verification remain pending. The [checklist](person-3-task-checklist.md) separates independent offline work from those dependencies. No implementation phase is started by this update.
+Use the [README evaluation checkpoint](../README.md#current-evaluation-checkpoint), [LOGGING.md](../LOGGING.md) and [current integration assessment](person-2-integration-note.md#current-integrated-status-25-september-2026) for current implementation and verification limits. Evaluation Sections 3-6 are complete; Section 7 found the system ready for Person 4's required experiments with documented limitations. The unavailable-reason, controlled-impairment, DATA-framing and bounded API retry/evidence-capture gaps have saved passing validation linked in that assessment. The [Stage 7 acceptance record](stage-7-acceptance.md) is an implementation-stage record, distinct from evaluation Section 7.
+
+A-C passed transfer acceptance. A's original explanation remains [REQUIRES_CORRECTION](../target/evaluation/section5-run-a-32768-20260925-204658-930498/explanation-review.json), while its measured transfer results remain valid. [B](../target/evaluation/section5-run-b-loss2-20260925-210849-739240/explanation-review.json), [C](../target/evaluation/section5-run-c-delay200-20260925-211634-307439/explanation-review.json) and [D](../target/evaluation/section5-run-d-unavailable-20260925-212915-115426/explanation-review.json) passed assignment-minimum prose review with minor presentation caveats. D's [bounded-failure acceptance passed](../target/evaluation/section5-run-d-unavailable-20260925-212915-115426/validation.json): transfer FAILED, integrity UNCONFIRMED. Live integrity FAILED remains NOT EXERCISED. These results do not require fixing or regenerating A before the required experiments. Use verified measurements for comparisons and reviewed explanations for presentation, without relabelling reviewer corrections as original model output.
+
+PENDING PERSON 4/team: the small/large file experiment matrix, timeout/window comparison, report, protocol specification and final demonstration. Implemented and tested capability is distinct from completed submission. Final validation/reviews supersede stale preparation or session-result statuses; their ignored `target/` evidence must be shared separately at handoff.
+
+The complete revised metric/supporting-field set remains accepted. The proposal, arithmetic and historical milestone decisions below are retained to explain how that scope developed, not to reopen approval or assert that instrumentation is absent.
+
+## Historical September 20 proposal review
 
 Reviewed September 20, 2026 after milestone 6 was committed as `ab3c4c0` on `person-3/llm-integration`. Source: the separately supplied `Metrics_Summary.docx` in the assignment directory. This note records its proposed fields and their implications; it does not declare a team contract or implemented measurements. The Word document labels its example illustrative, not measured, and proposes one summary record per transfer in JSONL or CSV.
 
-**Follow-up discussion draft:** [Revised Metrics Summary (Word)](Metrics_Summary_Revised.docx) and [editable Markdown](Metrics_Summary_Revised.md) now list the additional assignment measurements, proposed definitions and a corrected synthetic baseline. The source Word file is unchanged. This revision is for the user to discuss with Person 2, not a declaration of agreement or a start of milestone 7.
+**Historical follow-up:** [Revised Metrics Summary (Markdown)](Metrics_Summary_Revised.md) records the additional assignment measurements, proposed definitions and corrected synthetic baseline. Its Word copy was a historical draft and is not the maintained current reference. At the original review, this was a discussion proposal; the complete revised field set was subsequently accepted.
 
-**No existing implementation needs to change during this pause.** Milestone 6 deliberately separated the summary provider from the engine and kept its metric definitions synthetic. That boundary remains useful. A later real provider will adapt agreed Person 2 outputs into the explanation input. Receiving a field proposal does not unlock real explanations: identity mapping, measurement semantics, real outputs and integration are still pending.
+**Historical implementation boundary:** milestone 6 separated the summary provider from the engine and kept its metric definitions synthetic. At that checkpoint, real explanations still depended on identity mapping, measurement semantics, real outputs and integration. The integrated version now has a real provider while retaining the separation from synthetic fixtures.
 
-## Proposed fields and future handling
+## Original proposed fields and handling questions
 
-The following definitions come from Person 2's document. The handling column is Person 3's analysis, pending agreement.
+The following definitions came from Person 2's original proposal. The handling column preserves Person 3's questions at that time. For implemented counting points, use [LOGGING.md](../LOGGING.md): in particular, current `packets_received` counts valid attributable DATA arrivals, including valid duplicates and out-of-order arrivals, rather than all raw arrivals. Current RECEIVE_DELIVERY_V1 drops already-emitted DATA at receiver delivery and applies configured delay separately to receiver DATA and sender ACK delivery. Those drops remain sender emissions; configured loss percentage, observed drop count and measured RTT are different quantities.
 
 | Proposed field | Person 2's definition | Future handling / open point |
 | --- | --- | --- |
@@ -32,31 +40,35 @@ The following definitions come from Person 2's document. The handling column is 
 
 Ten numerical fields fit the existing `RecordedSummary.Field` shape, which carries value, unit, definition, kind and missing reason. Field names in the old synthetic fixtures are illustrative; they do not force Person 2 to rename her outputs. No fixture or source metric was renamed in this review.
 
-The three nonnumeric fields need explicit handling in the future adapter. `experiment_id` belongs in identity metadata, and the two booleans belong in outcome handling, not artificial 0/1 metrics. `ExplanationRequest` already receives a typed state/integrity outcome, but the real adapter will need to preserve and reconcile the producer's meanings. The current `TransferSummary` requires verified integrity before `COMPLETED`; retain that rule. Receiver verification can coexist with an unconfirmed/failed sender result when final confirmation is missing.
+The review identified explicit handling needed for the three nonnumeric fields: `experiment_id` belongs in identity metadata, and the two booleans belong in outcome handling, not artificial 0/1 metrics. `ExplanationRequest` already received a typed state/integrity outcome, while a future real adapter still needed to preserve and reconcile the producer's meanings. Verified integrity remains necessary before claiming verified completion. Receiver verification can coexist with an unconfirmed/failed sender result when final confirmation is missing.
 
-## What the current code continues to do
+## Code boundary at the historical milestone 6 checkpoint
 
-- `SummaryProvider` is an appropriate read-only integration point. The current `SyntheticSummaryProvider` remains exclusively for fixtures; it will not become a real file loader by relabelling its entries.
-- `ExplanationFlow` continues returning `EVIDENCE_UNAVAILABLE` for REAL selections before consulting a provider/client. Its fixture-version check stays in place. A future integration must deliberately support an agreed real schema and identity association while preserving rejection of mismatched evidence.
-- `TransferMetrics` remains the small draft status contract. The proposal is a terminal summary, not an observer or live-progress API. It supplies neither unique ACKed bytes nor the engine's chunk count. Packet/ACK counts must not be substituted for those fields, and seconds must not be truncated into integer milliseconds without agreed semantics.
+- `SummaryProvider` was identified as the read-only integration point. `SyntheticSummaryProvider` was, and remains, exclusively for fixtures; relabelling those entries cannot make them real observations.
+- The pre-integration `ExplanationFlow` returned `EVIDENCE_UNAVAILABLE` for all REAL selections before consulting a provider/client. The integrated version now supports validated REAL schemas and identity associations while rejecting mismatched evidence; the old blanket gate is no longer present.
+- `TransferMetrics` was the small draft status contract at that checkpoint. The proposed terminal summary supplied neither unique ACKed bytes nor a live-progress API. The integrated version now has observed live status; packet/ACK counts still must not be substituted for unique acknowledged bytes.
 - The existing engine, validator, command interpreter, immutable evidence, numerical citation checks, missing-value handling and separation of analysis from execution remain applicable.
 
-## Decisions to settle before real integration
+## Historical decisions requested before real integration
+
+The integrated choices are now documented in [LOGGING.md](../LOGGING.md). This list preserves the original questions and remains useful for checking their implementation against real evidence.
 
 1. **Identity and provenance:** establish a trustworthy association between `experiment_id`, application run/transfer IDs and protocol identity. Do not join on filename, latest record, coincident timestamps, or a generated hash of `EXP001`. Agree schema/metric-definition versions, capture/finalization time, endpoint ownership and real versus synthetic provenance. These can be in a linked manifest or envelope rather than all being new numerical fields.
 2. **Timing and outcomes:** define the transfer interval and exclude GPT time. Decide what throughput means for failed or unverified runs; original file size alone cannot supply partial delivered bytes. Retain failure reasons and distinguish unchecked integrity from a failed SHA-256 check. Specify zero-duration and zero-byte cases.
 3. **Counter scope and missing evidence:** agree DATA/ACK counting points, duplicates, validation and simulator placement. Do not assume `sent - received = dropped`, drops equal retransmissions, or configured loss equals observed loss. Only throughput and integrity are explicitly nullable in this proposal; settle absent observations and missing reasons for other fields rather than defaulting them to zero.
 4. **Storage and lifecycle:** choose the producer's actual format/location, unique-record rules and when a record is complete/readable, including failures. JSONL is a reasonable first integration choice because it preserves numbers, booleans and nulls directly; this is a recommendation, not agreement. If CSV is selected, explicitly define types, decimal representation and null versus empty values. The proposed JSONL rows are transfer summaries; an event log is a separate artifact even if it also uses JSONL.
 
-Person 2 retains ownership of counters, timing, logging and metric calculations. Person 3 will validate and present their agreed outputs. No parser, metric calculation, observer or protocol change is implemented in this pause.
+The original division of work assigned counters, timing, logging and calculations to Person 2, with Person 3 validating and presenting the agreed outputs. The September 20 proposal review itself changed no parser, metric calculation, observer or protocol code.
 
 ## Assignment coverage still to coordinate
 
-The assignment PDF's minimum evidence is broader than this proposed summary. It includes payload bytes delivered, acknowledged/timed-out/duplicated packet counts, retransmission ratio, protocol overhead, configured parameters/scenario, a machine-readable event log, and sampled RTT with mean and percentile latency where applicable. These are not all supplied by this document. In this cumulative-ACK engine, `acks_received` cannot substitute for acknowledged DATA-packet count, and DATA arrivals including duplicates do not isolate the duplicate count. Missing evidence may be added to a summary or made available through agreed linked evidence; this review does not assume Person 2 has committed to an implementation for it.
+The assignment PDF's minimum evidence is broader than the original proposed summary. It includes payload bytes delivered, acknowledged/timed-out/duplicated packet counts, retransmission ratio, protocol overhead, configured parameters/scenario, a machine-readable event log, and sampled RTT with mean and percentile latency where applicable. The revised field set was later accepted; the integrated code implements these categories and A-C provide real measured evidence. Person 4's experiment coverage remains pending. In this cumulative-ACK engine, `acks_received` cannot substitute for acknowledged DATA-packet count, and DATA arrivals including duplicates do not isolate the duplicate count.
 
-The existing handoff proposes particular definitions and additions such as p95, a specific overhead accounting boundary, seeds and version metadata. Those remain team design proposals. The PDF specifies a percentile where applicable, not p95 specifically; it does not prescribe our exact overhead formula or a particular jitter scalar. Preserve required assignment coverage without treating our earlier recommendations as already agreed.
+The assignment requires small and large files under baseline, at least 2% random loss, and meaningful added delay or jitter, plus a timeout/window comparison. This implies six size/scenario combinations; the evaluation plan's eight-run proposal is a practical team design, not an explicit instructor count. A-C used one 262,267-byte file and unchanged 8192-byte window/500 ms DATA timeout, so the capability evidence does not complete that matrix or comparison. The final report, protocol specification and demonstration remain pending with Person 4/the team.
 
-In particular, a retransmission ratio still needs an agreed denominator and zero-denominator behavior even though counts are now proposed. Overhead cannot be recovered from DATA counts alone without agreed byte accounting and relevant traffic evidence. RTT cannot be inferred from `delay_ms`. Live progress needs observation hooks independently of a final summary.
+The historical handoff proposed particular definitions and additions such as p95, an overhead accounting boundary, seeds and version metadata. The accepted scope and implemented definitions are recorded in the revised summary and LOGGING.md. These remain team design choices: the PDF specifies a percentile where applicable, not p95 specifically, and does not prescribe our exact overhead formula or a particular jitter scalar.
+
+The review therefore requested a retransmission-ratio denominator and zero-denominator behavior, byte accounting for overhead, documented RTT sampling and separate live observation hooks. Those implementation choices are now documented in LOGGING.md. The underlying cautions remain: overhead cannot be recovered from DATA counts alone, and RTT cannot be inferred from `delay_ms`.
 
 ## Check of the illustrative example
 
@@ -66,7 +78,9 @@ Its packet counts are not a feasible successful transfer for the current engine.
 
 To make that count precise: 10,240 is the original DATA-chunk count at exactly 1,024 bytes per chunk, not total datagrams or retry-inclusive DATA attempts. Keeping 120 resends would require 10,360 DATA attempts. ACK/control datagrams are additional, and arrival/drop/timeout counts cannot be inferred from that arithmetic. The revised summary therefore uses an explicitly synthetic, lossless, in-order baseline with 10,240 DATA attempts and zero resends, rather than inventing a complete impaired-run history.
 
-## Effect on the following milestones
+## Historical effect on the following milestones
+
+This table records the September 20 plan in the original repository. Its pending and future work is not the current integrated status.
 
 | Milestone | Planning adjustment only |
 | --- | --- |
@@ -76,4 +90,4 @@ To make that count precise: 10,240 is the original DATA-chunk count at exactly 1
 | 9, real integration | Begin with the identity/definition/storage decisions above and actual producer outputs. Add the real provider/outcome mapping, verify both success and failure evidence, then integrate observations and experiments. Keep missing assignment coverage visible instead of filling gaps in GPT. |
 | 10, final demo | Present the actual chosen producer schema, units, outcome semantics and experiment evidence; distinguish configured loss from observed drops. Check the PDF's full evidence requirements, not just the illustrative summary. |
 
-No milestone 7 implementation or new tests were started. This update changes planning documents only. The last recorded code verification remains 437 passing tests and a built JAR from milestone 6; no fresh Maven run is claimed or needed for this documentation review. No teammate message, commit or push was performed.
+The September 20 update changed planning documents only and started no milestone 7 implementation or new tests. Its recorded verification was 437 passing tests and a built JAR from milestone 6; that count is historical original-repository evidence, not the current integrated total. No fresh Maven run, teammate message, commit or push was performed for that historical review. See the README checkpoint for the later integrated verification.

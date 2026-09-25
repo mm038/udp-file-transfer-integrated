@@ -28,7 +28,9 @@ public record TransferEvent(
         String failureReason,
         Long newlyAcknowledgedPackets,
         Boolean retransmission,
-        Boolean integrityVerified) {
+        Boolean integrityVerified,
+        Long impairmentDecisionIndex,
+        Integer impairmentDelayMs) {
 
     public static final String SCHEMA_VERSION = MetricsSchema.EVENT_SCHEMA_VERSION;
 
@@ -40,6 +42,22 @@ public record TransferEvent(
         Objects.requireNonNull(endpoint, "endpoint is required");
         Objects.requireNonNull(eventType, "event type is required");
         Objects.requireNonNull(direction, "direction is required");
+    }
+
+    /** Source-compatible constructor for events without impairment observations. */
+    public TransferEvent(String schemaVersion, String eventId, long eventSequence, String timestampUtc,
+                         long monotonicTimeNanos, String experimentId, String runId,
+                         String applicationTransferId, String protocolTransferId, String endpoint,
+                         EventType eventType, Direction direction, String messageType,
+                         Integer sequenceNumber, Integer ackNumber, Integer attemptNumber,
+                         Long payloadBytes, Long encodedUdpPayloadBytes, String validationResult,
+                         String sequenceOutcome, String eventOutcome, String failureReason,
+                         Long newlyAcknowledgedPackets, Boolean retransmission, Boolean integrityVerified) {
+        this(schemaVersion, eventId, eventSequence, timestampUtc, monotonicTimeNanos, experimentId,
+                runId, applicationTransferId, protocolTransferId, endpoint, eventType, direction,
+                messageType, sequenceNumber, ackNumber, attemptNumber, payloadBytes, encodedUdpPayloadBytes,
+                validationResult, sequenceOutcome, eventOutcome, failureReason, newlyAcknowledgedPackets,
+                retransmission, integrityVerified, null, null);
     }
 
     public enum Direction {
@@ -62,7 +80,19 @@ public record TransferEvent(
             String failureReason,
             Long newlyAcknowledgedPackets,
             Boolean retransmission,
-            Boolean integrityVerified) {
+            Boolean integrityVerified,
+            Long impairmentDecisionIndex,
+            Integer impairmentDelayMs) {
+
+        public Details(String messageType, Integer sequenceNumber, Integer ackNumber,
+                       Integer attemptNumber, Long payloadBytes, Long encodedUdpPayloadBytes,
+                       String validationResult, String sequenceOutcome, String eventOutcome,
+                       String failureReason, Long newlyAcknowledgedPackets, Boolean retransmission,
+                       Boolean integrityVerified) {
+            this(messageType, sequenceNumber, ackNumber, attemptNumber, payloadBytes,
+                    encodedUdpPayloadBytes, validationResult, sequenceOutcome, eventOutcome,
+                    failureReason, newlyAcknowledgedPackets, retransmission, integrityVerified, null, null);
+        }
 
         public static Details empty() {
             return new Details(null, null, null, null, null, null, null, null,
@@ -88,6 +118,8 @@ public record TransferEvent(
         private Long newlyAcknowledgedPackets;
         private Boolean retransmission;
         private Boolean integrityVerified;
+        private Long impairmentDecisionIndex;
+        private Integer impairmentDelayMs;
 
         public Builder messageType(String value) { messageType = value; return this; }
         public Builder sequenceNumber(Integer value) { sequenceNumber = value; return this; }
@@ -102,12 +134,14 @@ public record TransferEvent(
         public Builder newlyAcknowledgedPackets(Long value) { newlyAcknowledgedPackets = value; return this; }
         public Builder retransmission(Boolean value) { retransmission = value; return this; }
         public Builder integrityVerified(Boolean value) { integrityVerified = value; return this; }
+        public Builder impairmentDecisionIndex(Long value) { impairmentDecisionIndex = value; return this; }
+        public Builder impairmentDelayMs(Integer value) { impairmentDelayMs = value; return this; }
 
         public Details build() {
             return new Details(messageType, sequenceNumber, ackNumber, attemptNumber,
                     payloadBytes, encodedUdpPayloadBytes, validationResult, sequenceOutcome,
                     eventOutcome, failureReason, newlyAcknowledgedPackets, retransmission,
-                    integrityVerified);
+                    integrityVerified, impairmentDecisionIndex, impairmentDelayMs);
         }
     }
 }

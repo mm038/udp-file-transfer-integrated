@@ -37,6 +37,7 @@ final class ResponsesTransport {
     private final URI endpoint;
     private final HttpClient http;
     private final Consumer<ApiCallObservation> observer;
+    private final EvaluationCapture capture;
 
     ResponsesTransport(String apiKey, GptSettings settings, URI endpoint) {
         this(apiKey, settings, endpoint, observation -> { });
@@ -44,10 +45,16 @@ final class ResponsesTransport {
 
     ResponsesTransport(String apiKey, GptSettings settings, URI endpoint,
                        Consumer<ApiCallObservation> observer) {
+        this(apiKey, settings, endpoint, observer, EvaluationCapture.disabled());
+    }
+
+    ResponsesTransport(String apiKey, GptSettings settings, URI endpoint,
+                       Consumer<ApiCallObservation> observer, EvaluationCapture capture) {
         this.apiKey = apiKey == null ? "" : apiKey.strip();
         this.settings = Objects.requireNonNull(settings, "settings");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         this.observer = Objects.requireNonNull(observer, "observer");
+        this.capture = Objects.requireNonNull(capture, "capture");
         if (!ENDPOINT.equals(endpoint) && !isLoopbackEndpoint(endpoint)) {
             throw new GptException(GptException.Code.INVALID_CONFIGURATION);
         }
@@ -56,6 +63,7 @@ final class ResponsesTransport {
     }
 
     <T> T post(JsonObject payload, UUID requestId, Function<String, T> decoder) {
+        capture.beginInvocation(requestId);
         if (apiKey.isBlank()) {
             throw new GptException(GptException.Code.MISSING_CREDENTIALS);
         }
@@ -66,16 +74,19 @@ final class ResponsesTransport {
         if (ResponsesJson.containsSecret(payload, apiKey)) {
             throw new GptException(GptException.Code.INVALID_CONFIGURATION);
         }
+        String serializedBody = JSON.toJson(payload);
         HttpRequest request;
         try {
             request = HttpRequest.newBuilder(endpoint).timeout(settings.requestTimeout())
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .header("X-Client-Request-Id", requestId.toString())
-                    .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(payload), StandardCharsets.UTF_8)).build();
+                    .POST(HttpRequest.BodyPublishers.ofString(serializedBody, StandardCharsets.UTF_8)).build();
         } catch (IllegalArgumentException exception) {
             throw new GptException(GptException.Code.INVALID_CONFIGURATION);
         }
+
+        UUID captureId = capture.request(requestId, serializedBody);
 
         for (int attempt = 1; attempt <= settings.maxAttempts(); attempt++) {
             Instant startedAt = Instant.now();
@@ -85,7 +96,7 @@ final class ResponsesTransport {
             try {
                 response = send(request, receivedStatus);
             } catch (GptException exception) {
-                observe(requestId, attempt, startedAt, elapsedMillis(startNanos), receivedStatus.get(),
+                observe(captureId, requestId, attempt, startedAt, elapsedMillis(startNanos), receivedStatus.get(),
                         exception.code(), Metadata.EMPTY);
                 if (Thread.currentThread().isInterrupted() || attempt == settings.maxAttempts()
                         || (exception.code() != GptException.Code.TRANSPORT
@@ -97,21 +108,23 @@ final class ResponsesTransport {
             }
             long latencyMillis = elapsedMillis(startNanos);
             int status = response.statusCode();
+            // Preserve bounded returned bytes before any parsing, refusal, or draft validation.
+            capture.response(captureId, attempt, status, response.body());
             if (status == 200) {
                 Metadata metadata = Metadata.EMPTY;
                 try {
                     String body = decodeUtf8(response.body());
                     metadata = metadata(body);
                     T result = decoder.apply(body);
-                    observe(requestId, attempt, startedAt, latencyMillis, status, null, metadata);
+                    observe(captureId, requestId, attempt, startedAt, latencyMillis, status, null, metadata);
                     return result;
                 } catch (GptException exception) {
-                    observe(requestId, attempt, startedAt, latencyMillis, status, exception.code(), metadata);
+                    observe(captureId, requestId, attempt, startedAt, latencyMillis, status, exception.code(), metadata);
                     throw exception;
                 }
             }
             GptException failure = statusFailure(status);
-            observe(requestId, attempt, startedAt, latencyMillis, status, failure.code(), Metadata.EMPTY);
+            observe(captureId, requestId, attempt, startedAt, latencyMillis, status, failure.code(), Metadata.EMPTY);
             if (retryable(status) && attempt < settings.maxAttempts()) {
                 pause(attempt);
                 continue;
@@ -157,11 +170,12 @@ final class ResponsesTransport {
         }
     }
 
-    private void observe(UUID requestId, int attempt, Instant startedAt, long latencyMillis,
+    private void observe(UUID captureId, UUID requestId, int attempt, Instant startedAt, long latencyMillis,
                          int status, GptException.Code failure, Metadata metadata) {
         var observation = new ApiCallObservation(requestId, settings.model(), metadata.model(), attempt,
                 startedAt, latencyMillis, status == 0 ? null : status, failure, metadata.status(),
                 metadata.input(), metadata.output(), metadata.total(), metadata.cached(), metadata.reasoning());
+        capture.attempt(captureId, observation);
         try {
             observer.accept(observation);
         } catch (RuntimeException ignored) {

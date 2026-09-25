@@ -14,6 +14,7 @@ import nettransfer.control.command.TransferConfiguration;
 import nettransfer.llm.GptClient;
 import nettransfer.llm.GptException;
 import nettransfer.llm.InterpretationRequest;
+import nettransfer.llm.EvaluationCapture;
 import nettransfer.explanation.ExplanationFlow;
 import nettransfer.explanation.ExplanationRequest;
 
@@ -37,6 +38,7 @@ public final class TransferCli {
     private final PrintWriter output;
     private final GptClient gpt;
     private final ExplanationFlow explanations;
+    private final EvaluationCapture capture;
     private final List<InterpretationRequest.Turn> clarificationHistory = new ArrayList<>();
     private UUID pendingRequestId;
     private CommandDispatcher.Selection current = CommandDispatcher.Selection.none();
@@ -57,12 +59,19 @@ public final class TransferCli {
     /** Explicit injection is required for synthetic offline explanation fixtures. */
     public TransferCli(TransferService service, TransferConfiguration configuration,
                        Reader input, PrintWriter output, GptClient gpt, ExplanationFlow explanations) {
+        this(service, configuration, input, output, gpt, explanations, EvaluationCapture.disabled());
+    }
+
+    public TransferCli(TransferService service, TransferConfiguration configuration,
+                       Reader input, PrintWriter output, GptClient gpt, ExplanationFlow explanations,
+                       EvaluationCapture capture) {
         this.service = Objects.requireNonNull(service, "service");
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.input = new BufferedReader(Objects.requireNonNull(input, "input"));
         this.output = Objects.requireNonNull(output, "output");
         this.gpt = Objects.requireNonNull(gpt, "gpt");
         this.explanations = Objects.requireNonNull(explanations, "explanations");
+        this.capture = Objects.requireNonNull(capture, "capture");
         dispatcher = new CommandDispatcher(new CommandParser(), new CommandValidator(configuration), service);
     }
 
@@ -159,11 +168,15 @@ public final class TransferCli {
 
     private void dispatch(String command, String arguments, CommandDispatcher.Selection selection) {
         var proposal = new CommandProposal.Calls(List.of(new CommandProposal.ToolCall(command, arguments)));
-        render(dispatcher.dispatch(UUID.randomUUID(), proposal, selection));
+        UUID requestId = UUID.randomUUID();
+        DispatchResult decision = dispatcher.dispatch(requestId, proposal, selection);
+        captureDecision(requestId, "direct_command", decision);
+        render(decision);
     }
 
     private void interpret(String text) {
         UUID requestId = pendingRequestId == null ? UUID.randomUUID() : pendingRequestId;
+        capture.beginInvocation(requestId);
         try {
             var request = new InterpretationRequest(requestId, text,
                     configuration.approvedFiles().keySet().stream().sorted().toList(),
@@ -179,6 +192,7 @@ public final class TransferCli {
                 if (question.isBlank() || question.length() > InterpretationRequest.MAX_TEXT_LENGTH) {
                     throw new GptException(GptException.Code.INVALID_RESPONSE);
                 }
+                captureDecision(requestId, "interpretation", result);
                 // This label prevents free model text from becoming a factual transfer acknowledgement.
                 output.println((proposal instanceof CommandProposal.Clarification
                         ? "Model clarification (no command dispatched): " : "Clarification: ") + question);
@@ -191,14 +205,18 @@ public final class TransferCli {
                     output.println("Clarification limit reached. Please restate the full request with file and receiver IDs.");
                 }
             } else {
+                captureDecision(requestId, "interpretation", result);
                 clearClarification();
                 render(result);
             }
         } catch (GptException e) {
+            capture.decision(requestId, "interpretation", e.code().name(), null, null, e.getMessage());
             clearClarification();
             output.println("GPT " + e.code() + ": " + e.getMessage()
                     + " No command dispatched. Direct commands remain available.");
         } catch (IllegalArgumentException e) {
+            capture.decision(requestId, "interpretation", "INVALID_COMMAND", null, null,
+                    "Input could not be represented by the bounded command contract. No command dispatched.");
             clearClarification();
             output.println("INVALID_COMMAND: GPT input must be 1-4000 characters, with at most 100 IDs per catalogue"
                     + " and 128 characters per ID. No command dispatched.");
@@ -208,6 +226,35 @@ public final class TransferCli {
     private void clearClarification() {
         pendingRequestId = null;
         clarificationHistory.clear();
+    }
+
+    /** Record only explicit Java decisions and selected identities, never the service or its resources. */
+    private void captureDecision(UUID requestId, String stage, DispatchResult decision) {
+        UUID runId = null;
+        UUID transferId = null;
+        String detail;
+        if (decision instanceof DispatchResult.Started started) {
+            runId = started.acknowledgement().runId();
+            transferId = started.acknowledgement().transferId();
+            detail = "Java accepted exactly one transfer start.";
+        } else if (decision instanceof DispatchResult.Status status) {
+            runId = status.snapshot().runId();
+            transferId = status.snapshot().transferId();
+            detail = "Java returned state " + status.snapshot().state() + ".";
+        } else if (decision instanceof DispatchResult.SummarySelected selected) {
+            runId = selected.summary().finalSnapshot().runId();
+            transferId = selected.summary().finalSnapshot().transferId();
+            detail = "Java selected a frozen terminal outcome; explanation evidence is checked separately.";
+        } else if (decision instanceof DispatchResult.Clarification) {
+            detail = "Clarification required. No transfer operation dispatched.";
+        } else if (decision instanceof DispatchResult.Unsupported) {
+            detail = "Unsupported operation. No transfer operation dispatched.";
+        } else if (decision instanceof DispatchResult.Rejected rejected) {
+            detail = rejected.error().code() + ": " + rejected.error().message();
+        } else {
+            detail = "Java dispatch completed.";
+        }
+        capture.decision(requestId, stage, decision.getClass().getSimpleName(), runId, transferId, detail);
     }
 
     private void render(DispatchResult result) {
@@ -287,7 +334,14 @@ public final class TransferCli {
         }
         var draft = result.draft();
         if (draft == null) {
-            output.println("No GPT explanation is generated. Available Java evidence is shown above.");
+            switch (result.status()) {
+                case EXPLANATION_REJECTED -> output.println(
+                        "The returned GPT answer was rejected by Java. Available Java evidence is shown above.");
+                case EXPLANATION_UNAVAILABLE -> output.println(
+                        "No accepted GPT answer is available; an explanation request may have occurred. Available Java evidence is shown above.");
+                default -> output.println(
+                        "No GPT explanation is generated: evidence checks prevented an explanation request. Available Java evidence is shown above.");
+            }
             return;
         }
         output.println("Explanation draft (no command dispatched):");

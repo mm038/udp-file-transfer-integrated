@@ -13,6 +13,84 @@ load validated sender-final or reconciled evidence for explanation. Synthetic
 fixtures remain limited to tests and deliberate evaluation; they are never
 substituted for missing real measurements.
 
+## Current evaluation checkpoint
+
+Documentation updated after the September 25, 2026 Section 7 assessment.
+**READY FOR PERSON 4'S EXPERIMENTS, with the limitations below.** Sections 3–6
+and the Section 7 coverage assessment are complete; the experiment matrix and
+final submission/demonstration remain **PENDING PERSON 4 / TEAM**.
+
+The evaluated implementation is the working tree on branch
+`feature/metrics-llm-integration`, based on commit
+`985b1a816fd772088b4dcc04d8796a759850feef`, including its local repairs. The
+commit alone does not contain those repairs. Before this documentation update,
+all 48 files in the latest saved working-tree snapshot matched their hashes;
+the only additional Git entry was the copied evaluation plan (49 entries:
+33 tracked modifications and 16 untracked files). Those counts describe the
+pre-cleanup snapshot, not the current status. Preserve/share the actual source
+snapshot and ignored evidence when preparing the handoff.
+
+The subsequent approved source-directory change makes the console and standalone
+sender both read `storage/outgoing`; the receiver still publishes under
+`storage/incoming`. Current examples use that updated implementation. Saved
+A–D and Section 6 evidence used the earlier `data/input` console root and remains
+unchanged. Use the new source-root build identified in the
+[walkthrough](docs/live-demo-walkthrough.md#1-identify-the-repository-and-java--powershell),
+not the older acceptance JAR, for the current mappings.
+
+The [source-root validation](target/evaluation/storage-outgoing-20260925-231608-232001/validation.json)
+records 315 focused tests across 14 classes passing, with no failures/errors/skips
+in their latest results. The updated working JAR is also saved as `application.jar`
+in that evidence folder; `application-before.jar` preserves the previous build.
+All 1,843 checked prior evaluation/report files retained their hashes. This is
+focused verification of the follow-up change, not a repeat of the paid A–D runs.
+
+Fresh offline verification at that commit already passed **762 tests across 56
+classes, with zero failures/errors/skips**, and packaged the JAR on September 25.
+The saved log is
+`target/evaluation/integrated-retry-20260925-120422-068/maven-verify.log`, with
+matching suffixed reports under `target/surefire-reports`. These are local ignored
+artifacts and must be shared separately. Do not repeat the full suite just to
+resume the evaluation, and do not use `mvn clean` on preserved evidence.
+
+The four Section 3 findings were repaired and verified before manual acceptance:
+
+| Repaired capability | Saved passing validation |
+| --- | --- |
+| Preserve reasons for unavailable RTT statistics through reconciliation | [74 focused tests and packaging](target/evaluation/metrics-null-reasons-20260925-131319-640/validation.json) |
+| Controlled receive-side loss/delay, applied settings and observations | [320 final focused tests and real-transfer checks](target/evaluation/controlled-impairment-20260925-134232-676/validation.json) |
+| Opt-in exact API evidence and Java-decision capture | [341 focused tests and packaging](target/evaluation/api-evidence-capture-20260925-151307-190/validation.json) |
+| Exact DATA framing and accepted chunk/final-payload lengths | [160 focused tests and raw-UDP checks](target/evaluation/data-framing-20260925-161314-533/validation.json) |
+
+These later focused results cover subsequent repairs; the 762-test full suite
+above was not rerun after every change. The explanation output cap was separately
+[checked and packaged at 32768](target/evaluation/explanation-limit-32768-20260925-204413-531872/validation.json).
+
+| Integrated acceptance evidence | Result |
+| --- | --- |
+| [A: baseline and natural-language start/analysis selection](target/evaluation/section5-run-a-32768-20260925-204658-930498/validation.json) | Transfer and independent hashes PASS; original [prose review](target/evaluation/section5-run-a-32768-20260925-204658-930498/explanation-review.json) remains **REQUIRES_CORRECTION**. |
+| [B: configured 2% random receiver DATA loss](target/evaluation/section5-run-b-loss2-20260925-210849-739240/validation.json) | Transfer/hashes PASS; explanation passed assignment-minimum review with minor presentation caveats. |
+| [C: 200 ms DATA/ACK delay per direction](target/evaluation/section5-run-c-delay200-20260925-211634-307439/validation.json) | Transfer/hashes PASS; genuinely active natural-language status PASS; explanation passed with minor presentation caveats. |
+| [D: unavailable receiver](target/evaluation/section5-run-d-unavailable-20260925-212915-115426/validation.json) | Expected bounded failure PASS; transfer **FAILED**, integrity **UNCONFIRMED**; explanation passed with minor presentation caveats. |
+| [Clarification and retained context](target/evaluation/section6-clarification-prep-20260925-215444-525297/validation.json) | PASS: missing receiver requested, then exactly one bounded successful transfer. |
+| [Unsupported operation](target/evaluation/section6-unsupported-prep-20260925-221110-460830/validation.json) | No execution/deletion; model refusal is separate from the saved offline deterministic Java-rejection evidence. |
+
+A's combined sender/receiver emission bytes were misattributed to the sender,
+and its prose included unsupported claims. Preserve the original failed review;
+use verified measurements for comparisons and reviewed explanations for
+presentation. No regeneration is required to begin experiments. Live integrity
+**FAILED** remains **NOT EXERCISED**; D does not exercise it.
+
+A–C used one 262,267-byte file and the same window/timeout. Person 4 still needs
+small and large files in baseline, at least 2% random loss, and meaningful delay
+or jitter, plus a timeout or window comparison. These are six file/scenario
+combinations; the plan's eight-run design is a team choice, not an instructor
+count. The 2–4-page protocol specification/sequence diagram, 4–6-page report,
+at least three shared raw logs with reproduction commands, final demonstration
+and disclosure remain pending. See the [current plan](docs/integrated-prototype-evaluation-plan.md)
+and [walkthrough](docs/live-demo-walkthrough.md). Historical milestone records
+and preparation/session statuses do not override final validations and reviews.
+
 ## Prerequisites, build, and tests
 
 - JDK 17 or later (`java -version` and `javac -version`)
@@ -57,6 +135,13 @@ receiver does not trust the remote START filename as a destination path. One
 receiver process handles one transfer and exits after its bounded completion
 recovery period.
 
+Both ordinary launchers target loopback. The direct sender uses `127.0.0.1` and
+the supplied port; the console's approved receiver is `127.0.0.1:9000`.
+Sender success can precede receiver exit and final destination publication, so
+wait for the receiver before hashing the destination. A handled direct-transfer
+failure can still return normally from Main; inspect the result and artifacts
+instead of treating a zero process exit code as proof of transfer success.
+
 The equivalent Maven commands are:
 
 ```powershell
@@ -85,11 +170,38 @@ parse correctly, and contain an explicit verification result. During completion
 grace, duplicate matching FINISH messages receive the cached FINISH_ACK without
 another file write, hash calculation, or publication.
 
+The properties above apply to the direct `nettransfer.Main` entry point. The
+console adapter uses its separately documented START and DATA settings. These
+phase/retry limits are not an independent overall wall-clock transfer deadline.
+
 For a shorter receiver wait during a manual test:
 
 ```powershell
 mvn "-Dnettransfer.receiverInitialTimeoutMs=5000" exec:java "-Dexec.mainClass=nettransfer.Main" "-Dexec.args=receiver 9000 timeout-test.txt"
 ```
+
+## Controlled loss and delay
+
+Both launchers support the tested local `RECEIVE_DELIVERY_V1` shim. Supply the
+same profile to receiver and sender/console processes as Java `-D` properties
+before `-jar` or `-cp`:
+
+| Property | Meaning |
+| --- | --- |
+| `nettransfer.impairment.enabled=true` | Enable the explicit experimental profile. |
+| `nettransfer.impairment.lossPercent=2` | Random drop probability, percent, for eligible DATA at the receiver; no ACK loss. |
+| `nettransfer.impairment.delayMs=0` | Fixed receive-delivery delay per direction for receiver DATA and sender ACK; milliseconds, 0–5000. |
+| `nettransfer.impairment.seed=42` | Seed the receiver's random decisions; OS timing can still vary. |
+| `nettransfer.impairment.scenario=loss2` | Matching nonblank scenario label for both endpoints. |
+
+All four profile values are required when enabled. An explicit baseline uses
+loss `0` and delay `0`; a delay-only profile uses loss `0` and, for example,
+delay `200` on both endpoints. START/FINISH control exchanges bypass impairment.
+Loss occurs after socket emission, so dropped DATA still contributes to emitted
+UDP payload bytes. Configured loss is distinct from the observed finite-run drop
+count; configured delay is distinct from measured RTT. Do not interpret a
+disabled/unobserved impairment field as a measured zero. Full launch examples
+and per-run output rules are in the [walkthrough](docs/live-demo-walkthrough.md).
 
 ## Metrics and live snapshots
 
@@ -131,7 +243,9 @@ Sender live snapshots also expose elapsed time and exact sender-confirmed ACKed
 payload bytes with a separately named ACK-based rate. Those values do not
 masquerade as receiver-delivered bytes or reconciled throughput.
 
-See [Metrics Summary](docs/Metrics_Summary_Revised.md) for field definitions and
+See [Metrics Summary](docs/Metrics_Summary_Revised.md) for the accepted field
+inventory and its current implementation notes, [LOGGING](LOGGING.md) for the
+persisted contract, and
 [the live demo walkthrough](docs/live-demo-walkthrough.md) for inspection
 examples.
 
@@ -161,8 +275,9 @@ application/experiment identities, configurations, event streams, counters,
 and emission totals. It then publishes
 `logs/standalone/reconciled/<protocol-uuid>/summary.jsonl` and `manifest.json`.
 Existing finalized output is not overwritten. Sender-confirmed success and
-receiver-observed integrity remain separate, and unavailable values remain null
-with reasons. See [LOGGING.md](LOGGING.md) for schemas, formulas, completeness
+receiver-observed integrity remain separate. Unavailable values should retain
+their reasons, including unavailable RTT statistics after the verified repair.
+See [LOGGING.md](LOGGING.md) for schemas, formulas, completeness
 rules, and the full verification procedure.
 
 The command console uses the same `<projectRoot>/logs` root for sender logging
@@ -174,8 +289,9 @@ and, if needed, creates the reconciled summary through the existing exporter.
 
 ## Run the validated command console
 
-The new console uses a different, explicit source catalogue. Create a file under
-`data/input`, for example `data/input/report.txt`. Start the ordinary receiver
+The console uses an explicit source catalogue under the same `storage/outgoing`
+directory as the standalone sender. Create `storage/outgoing/report.txt`.
+Start the ordinary receiver
 with a fresh filename in terminal 1:
 
 ```powershell
@@ -183,16 +299,16 @@ java -jar target/udp-file-transfer.jar receiver 9000 report-cli.txt
 ```
 
 In terminal 2, map one or more approved IDs to relative paths under the project
-root's `data/input` directory:
+root's `storage/outgoing` directory:
 
 ```powershell
-java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . "report=data/input/report.txt"
+java -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . "report=storage/outgoing/report.txt"
 ```
 
 The first argument is the application root. The remaining arguments are
 `file-id=relative-path` mappings; quote mappings containing spaces. Java
 resolves real paths and accepts only readable regular files that remain inside
-`<projectRoot>/data/input`, including after symbolic-link resolution. The only
+`<projectRoot>/storage/outgoing`, including after symbolic-link resolution. The only
 configured receiver ID is `receiver-a` at `127.0.0.1:9000`; model output cannot
 supply arbitrary paths, hosts, or ports.
 
@@ -251,6 +367,9 @@ dispatch, and reports whether a transfer was accepted. Model prose is labelled
 as non-execution. The console retains at most two clarification exchanges and
 clears that context after direct commands, failures, rejections, or execution.
 
+Run selection is retained in memory. Restarting the console does not reload its
+previous selectable runs, even though their logs remain on disk.
+
 ## GPT configuration and explanation flow
 
 Direct start, status, help, and catalogue commands need no API key. An API key
@@ -261,11 +380,16 @@ AVAILABLE evidence set is sent for explanation:
 $env:OPENAI_API_KEY = '<set privately>'
 $env:OPENAI_MODEL = 'gpt-5-mini'                 # optional; this is the default
 $env:OPENAI_CONNECT_TIMEOUT_MS = '5000'          # optional
-$env:OPENAI_REQUEST_TIMEOUT_MS = '30000'         # optional
+$env:OPENAI_REQUEST_TIMEOUT_MS = '90000'         # evaluation setting; ordinary default is 30000
 ```
 
 Both API timeouts must be 100-120,000 ms and are independent of UDP transfer
-timeouts. The shared HTTP transport makes bounded attempts. An absent or invalid
+timeouts. The ordinary clients allow up to **two HTTP attempts per logical
+request**; environment settings do not expose a one-attempt override. Command
+interpretation requests at most **4096** output tokens; explanation requests at
+most **32768**. Command interpretation uses
+`commands-v2`; explanation uses `explanations-v6`, which retains the v5 grounding
+rules and adds REAL evidence-scope/source-reference instructions. An absent or invalid
 GPT configuration does not disable direct transfer, status, help, or catalogue
 commands.
 
@@ -277,13 +401,48 @@ when a natural-language sentence begins with a reserved direct command, such as
 The explanation flow selects a frozen transfer outcome, then uses
 `PersistedEvidenceRepository` and `RealMetricsSummaryProvider` to require exact
 application, sender-run, and protocol identities. Only complete, final,
-validated `SENDER_FINAL`, `RECEIVER_FINAL`, or `RECONCILED` REAL evidence can
-reach the existing explanation client. The HTTP client requests strict
-structured JSON, exposes no execution tools, verifies cited field values and
-units, and preserves the original evidence if model analysis fails.
+validated REAL evidence can reach the existing explanation client. The ordinary
+provider supplies `SENDER_FINAL` for an eligible finalized sender failure, or
+`RECONCILED` after both endpoints are validated. `RECEIVER_FINAL` is a scope
+recognized by the wider contract, not a route supplied by this provider. The
+HTTP client requests strict structured JSON and exposes no execution tools;
+Java's explanation flow checks cited field values and units and preserves the
+original evidence if model analysis fails. Actual prose still needs review.
 
-Non-available evidence never triggers an API request. `EVIDENCE_PENDING` means
-recording or receiver recovery is still active; `EVIDENCE_INCOMPLETE` means a
+GPT receives the projected summary fields, outcome/identity metadata and source
+reference identifiers. It does not receive raw JSONL events or an event timeline.
+Direct structured explanation makes one logical explanation request when
+evidence is available; natural-language explanation first needs an interpretation
+request, so retries can produce up to four HTTP attempts in that two-call route.
+
+For any later approved API evaluation, enable the implemented recorder when
+launching the console:
+
+```powershell
+java "-Dnettransfer.evaluation.record=true" -cp target/udp-file-transfer.jar nettransfer.cli.TransferCliMain . "report=storage/outgoing/report.txt"
+```
+
+It creates a fresh `<projectRoot>/target/evaluation/llm-...` directory containing
+request/response bodies, per-attempt usage/timing and failures, Java decisions,
+and session-completion records. Rejected model drafts remain untrusted evidence;
+recording does not make them accepted answers. Missing or omitted bodies are
+identified explicitly; check `session-end.json` before claiming a complete
+capture. Without the flag, API recording is disabled. Preserve this folder
+alongside transfer logs, summaries, hashes and prose reviews. Keep API timing
+separate from UDP timing: `OPENAI_REQUEST_TIMEOUT_MS=90000` is an HTTP-attempt
+timeout, not a transfer deadline. Saved acceptance runs used separate external
+transfer supervision; the commands above do not create an overall watchdog.
+
+New paid calls require explicit approval. The saved latest
+[usage ledger](target/evaluation/section6-unsupported-prep-20260925-221110-460830/api-usage-and-cost.json)
+estimates project spending at **$0.13104675 of $10**, including the original
+user-reported $0.08, leaving **$9.86895325**. The console has no automatic dollar
+cutoff; retain the model, prompt, attempt limits and caps above.
+
+Non-available evidence never triggers the explanation API request. A preceding
+natural-language interpretation can still have made its own request.
+`EVIDENCE_PENDING` means the record still says RECORDING, including normal receiver
+recovery; a crashed process can also leave that state. `EVIDENCE_INCOMPLETE` means a
 final evidence boundary was not reached; `EVIDENCE_UNAVAILABLE` means no
 applicable validated evidence exists; and `EVIDENCE_REJECTED` means identity,
 schema, provenance, ambiguity, integrity, or other validation failed. The CLI
@@ -294,7 +453,7 @@ See the [milestone 5 walkthrough](docs/person-3-milestone-5.md) for command
 interpretation and [milestone 6](docs/person-3-milestone-6.md) plus its
 [HTTP follow-up](docs/person-3-milestone-6-http.md) for the explanation boundary.
 
-## Final integrated acceptance status
+## Automated integrated acceptance status
 
 The Stage 7 offline acceptance campaign exercises the complete CLI-to-real-UDP-to-logging-to-
 reconciliation-to-explanation path with a deterministic explanation stub. It verifies real
@@ -302,7 +461,7 @@ loopback bytes and SHA-256, live and retained sender status, receiver completion
 `PENDING`, finalized endpoint records, exact identity association, reconciliation, metric
 invariants, unavailable reasons, and REAL evidence presentation.
 
-The final run on September 23, 2026 reported:
+The earlier Stage 7 run on September 23, 2026 reported:
 
 ```text
 Focused integration/regression set: 223 tests, 0 failures, 0 errors, 0 skipped
@@ -310,35 +469,33 @@ Full mvn verify:                    762 tests, 0 failures, 0 errors, 0 skipped
 JAR packaging:                     SUCCESS (target/udp-file-transfer.jar)
 ```
 
-This establishes offline integration and real loopback UDP behavior. It does not establish live
-GPT prose quality or cross-host network behavior. No paid API call was made. See
+The fresh September 25 full verification is recorded in the
+[current checkpoint](#current-evaluation-checkpoint). These results cover the
+tested offline integration and real loopback behavior; they do not establish live
+GPT prose quality, cross-host behavior or the absence of uncovered defects. No paid
+API call was made by these test runs. See
 [Stage 7 integrated acceptance](docs/stage-7-acceptance.md) for the genuine-versus-targeted test
-matrix and the optional, explicitly authorized one-call live-GPT procedure.
+matrix, subsequent saved live results, and the remaining final-demonstration work.
 
 ## Deliberate evaluation and historical results
 
-The live evaluation is opt-in because it can spend API credit. Previewing the
-four-case synthetic explanation batch makes no API calls:
+The runner below is retained for historical reference; it is not the current
+integrated evaluation route. Later approved API work uses the captured console
+route above. Previewing the four-case synthetic explanation batch makes no API calls:
 
 ```powershell
 $env:OPENAI_MODEL = 'gpt-5-mini'
 .\scripts\milestone-8-eval.ps1 -Batch explanations
 ```
 
-After reviewing the preview, a deliberately authorized live run can be bounded
-to four calls:
-
-```powershell
-$env:OPENAI_MODEL = 'gpt-5-mini'
-$env:OPENAI_REQUEST_TIMEOUT_MS = '90000'
-.\scripts\milestone-8-eval.ps1 -Batch explanations -Live -MaxCalls 4
-```
-
-Each run writes a new `report.jsonl` and `review.md` under
+Historical live invocations wrote a new `report.jsonl` and `review.md` under
 `target/milestone-8-eval/<unique-run>/`. The explanation batch uses SYNTHETIC
 evidence; it does not prove the real-metrics connection or validate every claim
 in model prose. Review both automated checks and the actual text before spending
-credit on further `commands`, `explanations`, or `real` batches.
+credit on further `commands`, `explanations`, or `real` batches. The historical
+`real` batch covers start/status and installs an unavailable explanation flow;
+it is not a real-evidence explanation campaign. The runner limits each logical
+call to one HTTP attempt, unlike the ordinary console defaults.
 
 The following are preserved historical branch results, not verification of this
 newly merged version:
@@ -358,9 +515,12 @@ newly merged version:
   packaging was not repeated after v5. The earlier milestone-7 baseline was 566
   tests across 30 classes.
 
-These results describe Raida's pre-merge evaluation artifacts only. Run the
-current merged suite and perform a new, explicitly authorized integration
-evaluation before treating the combined version as verified. Details and manual
+These results describe Raida's pre-merge evaluation artifacts in the original
+repository. Fresh verification of the integrated version has since passed as
+recorded above; do not rerun the unchanged full suite merely because these older
+results appear here. Integrated A–D acceptance and v6 prose review are now complete,
+with A's original **REQUIRES_CORRECTION** retained as described in the checkpoint.
+Details of the historical results and manual
 review guidance are in [milestone 8](docs/person-3-milestone-8.md), the
 [milestone 7 audit](docs/person-3-milestone-7.md), and the
 [repository handoff](docs/repository-and-milestone-handoff.md).

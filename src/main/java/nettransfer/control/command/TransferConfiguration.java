@@ -8,7 +8,7 @@ import java.util.Objects;
 /**
  * Trusted Java configuration, never model-supplied paths, addresses or bounds.
  * Relative catalogue paths resolve against the explicit application root and
- * must remain under data/input. These policy bounds are the team's draft values.
+ * must remain under storage/outgoing. These policy bounds are the team's draft values.
  */
 public record TransferConfiguration(Path applicationRoot, Map<String, Path> approvedFiles,
                                     Map<String, InetSocketAddress> approvedReceivers) {
@@ -48,7 +48,7 @@ public record TransferConfiguration(Path applicationRoot, Map<String, Path> appr
     }
 
     public Path inputRoot() {
-        return applicationRoot.resolve("data/input");
+        return applicationRoot.resolve("storage/outgoing");
     }
 
     private static void requireId(String id) {

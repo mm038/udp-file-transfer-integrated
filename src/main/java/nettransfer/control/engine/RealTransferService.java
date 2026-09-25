@@ -12,6 +12,7 @@ import nettransfer.control.TransferStart;
 import nettransfer.control.TransferState;
 import nettransfer.control.TransferSummary;
 import nettransfer.net.UdpChannel;
+import nettransfer.net.ImpairmentSettings;
 import nettransfer.metrics.EventLogger;
 import nettransfer.metrics.LiveMetricsSnapshot;
 import nettransfer.metrics.MetricsSchema;
@@ -41,7 +42,7 @@ import static nettransfer.control.TransferError.Code.TRANSFER_FAILED;
 import static nettransfer.control.TransferError.Code.UNKNOWN_TRANSFER;
 
 /**
- * Runs the unchanged blocking sender on one worker. Each run owns its channel.
+ * Runs the blocking sender on one worker. Each run owns its channel and simulator decisions.
  * The monitor protects only state publication/reservation, never network or file I/O.
  * No progress, protocol timing, or wire identity is inferred without engine hooks.
  */
@@ -66,6 +67,11 @@ public final class RealTransferService implements TransferService, AutoCloseable
         this(DEFAULT_INITIAL_RESPONSE_TIMEOUT_MILLIS, loggingRoot);
     }
 
+    /** Trusted startup-only simulator configuration; it cannot be set by model commands. */
+    public RealTransferService(Path loggingRoot, ImpairmentSettings impairment) {
+        this(DEFAULT_INITIAL_RESPONSE_TIMEOUT_MILLIS, loggingRoot, impairment);
+    }
+
     /**
      * This per-attempt START response timeout is separate from the validated DATA timeout.
      * The sender retains its normal retry limit, so the approximate maximum START handshake
@@ -80,6 +86,12 @@ public final class RealTransferService implements TransferService, AutoCloseable
      * A null root preserves the explicitly non-persistent programmatic mode.
      */
     public RealTransferService(int initialResponseTimeoutMillis, Path loggingRoot) {
+        this(initialResponseTimeoutMillis, loggingRoot, ImpairmentSettings.disabled());
+    }
+
+    public RealTransferService(int initialResponseTimeoutMillis, Path loggingRoot,
+                               ImpairmentSettings impairment) {
+        Objects.requireNonNull(impairment, "impairment settings");
         if (initialResponseTimeoutMillis <= 0) {
             throw new IllegalArgumentException("The initial receive timeout must be finite and positive");
         }
@@ -92,7 +104,7 @@ public final class RealTransferService implements TransferService, AutoCloseable
         });
         this.clock = Clock.systemUTC();
         this.sessionFactory = request -> openEngineSession(
-                request, initialResponseTimeoutMillis, trustedLoggingRoot);
+                request, initialResponseTimeoutMillis, trustedLoggingRoot, impairment);
     }
 
     /** Package-local seams let tests gate blocking work without changing the UDP engine. */
@@ -296,8 +308,8 @@ public final class RealTransferService implements TransferService, AutoCloseable
     }
 
     private static SenderSession openEngineSession(TransferRequest request, int initialTimeoutMillis,
-                                                   Path loggingRoot) throws IOException {
-        UdpChannel channel = new UdpChannel();
+                                                   Path loggingRoot, ImpairmentSettings impairment) throws IOException {
+        UdpChannel channel = new UdpChannel(impairment);
         try {
             var settings = request.settings();
             SenderEngine engine = new SenderEngine(channel, request.receiver().getAddress(),

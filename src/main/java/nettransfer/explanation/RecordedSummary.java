@@ -85,7 +85,21 @@ public record RecordedSummary(UUID runId, UUID transferId, UUID protocolTransfer
             Boolean receiverIntegrityVerified,
             String failureCategory,
             String failureReason,
-            List<String> sourceReferences) {
+            List<String> sourceReferences,
+            ImpairmentMetadata impairment) {
+        /** Historical callers have no receive-delivery impairment metadata. */
+        public EvidenceMetadata(EvidenceScope scope, EvidenceCompleteness completeness,
+                                FinalizationStatus finalizationStatus, String applicationTransferId,
+                                String senderRunId, String receiverRunId, UUID protocolTransferId,
+                                String metricsSchemaVersion, String metricDefinitionVersion,
+                                String senderTerminalOutcome, Boolean receiverIntegrityVerified,
+                                String failureCategory, String failureReason, List<String> sourceReferences) {
+            this(scope, completeness, finalizationStatus, applicationTransferId, senderRunId,
+                    receiverRunId, protocolTransferId, metricsSchemaVersion, metricDefinitionVersion,
+                    senderTerminalOutcome, receiverIntegrityVerified, failureCategory, failureReason,
+                    sourceReferences, null);
+        }
+
         public EvidenceMetadata {
             Objects.requireNonNull(scope, "evidence scope is required");
             Objects.requireNonNull(completeness, "evidence completeness is required");
@@ -113,6 +127,16 @@ public record RecordedSummary(UUID runId, UUID transferId, UUID protocolTransfer
             if (scope == EvidenceScope.SENDER_FINAL && senderRunId == null) {
                 throw new IllegalArgumentException("Sender-final evidence requires a sender run ID");
             }
+        }
+    }
+
+    /** Configuration and observation scope, never a claim of measured network-wide loss. */
+    public record ImpairmentMetadata(String mechanism, String scenario, long seed,
+                                     String affectedTraffic, boolean receiverDropObservationsAvailable) {
+        public ImpairmentMetadata {
+            text(mechanism, 80);
+            text(scenario, 128);
+            text(affectedTraffic, 400);
         }
     }
 

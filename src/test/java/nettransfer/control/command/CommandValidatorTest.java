@@ -48,9 +48,9 @@ class CommandValidatorTest {
     @BeforeEach
     void configureApprovedFileAndReceiver() throws IOException {
         applicationRoot = Files.createDirectory(temporaryDirectory.resolve("app"));
-        Path inputRoot = Files.createDirectories(applicationRoot.resolve("data/input"));
+        Path inputRoot = Files.createDirectories(applicationRoot.resolve("storage/outgoing"));
         source = Files.writeString(inputRoot.resolve("report.txt"), "Approved test input");
-        validator = validatorFor(Map.of("report", Path.of("data/input/report.txt")));
+        validator = validatorFor(Map.of("report", Path.of("storage/outgoing/report.txt")));
     }
 
     @Test
@@ -141,7 +141,7 @@ class CommandValidatorTest {
 
     @Test
     void missingFilesAndDirectoriesAreUnavailableEvenWhenConfigured() {
-        for (Path path : List.of(Path.of("data/input/missing.txt"), Path.of("data/input"))) {
+        for (Path path : List.of(Path.of("storage/outgoing/missing.txt"), Path.of("storage/outgoing"))) {
             assertRejected(FILE_UNAVAILABLE, validatorFor(Map.of("report", path)), start(null, null));
         }
     }
@@ -150,14 +150,26 @@ class CommandValidatorTest {
     void absolutePathsAndTraversalCannotApproveFilesOutsideTheInputRoot() throws IOException {
         Path outside = Files.writeString(applicationRoot.resolve("outside.txt"), "Outside input root");
 
-        for (Path path : List.of(outside, Path.of("data/input/../../outside.txt"))) {
+        for (Path path : List.of(outside, Path.of("storage/outgoing/../../outside.txt"))) {
+            assertRejected(FILE_UNAVAILABLE, validatorFor(Map.of("report", path)), start(null, null));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"data/input/report.txt", "storage/incoming/report.txt", "storage/outgoing-backup/report.txt"})
+    void approvedFilesInLegacyIncomingOrLookalikeDirectoriesAreRejected(String relativePath) throws IOException {
+        Path outside = applicationRoot.resolve(relativePath);
+        Files.createDirectories(outside.getParent());
+        Files.writeString(outside, "Readable file outside the approved outgoing directory");
+
+        for (Path path : List.of(Path.of(relativePath), outside)) {
             assertRejected(FILE_UNAVAILABLE, validatorFor(Map.of("report", path)), start(null, null));
         }
     }
 
     @Test
     void configuredCataloguesAreDefensivelyCopiedAndImmutable() throws IOException {
-        Map<String, Path> files = new HashMap<>(Map.of("report", Path.of("data/input/report.txt")));
+        Map<String, Path> files = new HashMap<>(Map.of("report", Path.of("storage/outgoing/report.txt")));
         InetSocketAddress receiver = new InetSocketAddress("127.0.0.1", 9000);
         Map<String, InetSocketAddress> receivers = new HashMap<>(Map.of("receiver-a", receiver));
         TransferConfiguration configuration = new TransferConfiguration(applicationRoot, files, receivers);
@@ -201,11 +213,11 @@ class CommandValidatorTest {
     void directoryLinksCannotEscapeTheApprovedInputTree() throws Exception {
         Path externalDirectory = Files.createDirectory(temporaryDirectory.resolve("external"));
         Files.writeString(externalDirectory.resolve("secret.txt"), "Outside application root");
-        Path link = applicationRoot.resolve("data/input/linked");
+        Path link = applicationRoot.resolve("storage/outgoing/linked");
         createDirectoryLinkOrSkip(link, externalDirectory);
         try {
             assertRejected(FILE_UNAVAILABLE,
-                    validatorFor(Map.of("report", Path.of("data/input/linked/secret.txt"))), start(null, null));
+                    validatorFor(Map.of("report", Path.of("storage/outgoing/linked/secret.txt"))), start(null, null));
         } finally {
             // Delete only the link before @TempDir cleanup, never recursively traverse its target.
             Files.deleteIfExists(link);
@@ -218,12 +230,12 @@ class CommandValidatorTest {
         Path externalDirectory = Files.createDirectory(temporaryDirectory.resolve("external"));
         Files.writeString(externalDirectory.resolve("report.txt"), "External report");
         Path redirectedApplication = Files.createDirectory(temporaryDirectory.resolve("redirected-app"));
-        Files.createDirectory(redirectedApplication.resolve("data"));
-        Path link = redirectedApplication.resolve("data/input");
+        Files.createDirectory(redirectedApplication.resolve("storage"));
+        Path link = redirectedApplication.resolve("storage/outgoing");
         createDirectoryLinkOrSkip(link, externalDirectory);
         try {
             CommandValidator redirectedValidator = new CommandValidator(TransferConfiguration.localhost(
-                    redirectedApplication, Map.of("report", Path.of("data/input/report.txt"))));
+                    redirectedApplication, Map.of("report", Path.of("storage/outgoing/report.txt"))));
 
             assertRejected(FILE_UNAVAILABLE, redirectedValidator, start(null, null));
         } finally {
@@ -237,12 +249,12 @@ class CommandValidatorTest {
         Path redirectedApplication = Files.createDirectory(temporaryDirectory.resolve("redirected-app"));
         Path otherDirectory = Files.createDirectory(redirectedApplication.resolve("private"));
         Files.writeString(otherDirectory.resolve("report.txt"), "Not under the fixed input root");
-        Files.createDirectory(redirectedApplication.resolve("data"));
-        Path link = redirectedApplication.resolve("data/input");
+        Files.createDirectory(redirectedApplication.resolve("storage"));
+        Path link = redirectedApplication.resolve("storage/outgoing");
         createDirectoryLinkOrSkip(link, otherDirectory);
         try {
             CommandValidator redirectedValidator = new CommandValidator(TransferConfiguration.localhost(
-                    redirectedApplication, Map.of("report", Path.of("data/input/report.txt"))));
+                    redirectedApplication, Map.of("report", Path.of("storage/outgoing/report.txt"))));
 
             assertRejected(FILE_UNAVAILABLE, redirectedValidator, start(null, null));
         } finally {
@@ -253,12 +265,12 @@ class CommandValidatorTest {
 
     @Test
     void sourceDirectoryLinksThatStayWithinTheInputRootAreAllowed() throws Exception {
-        Path permittedDirectory = Files.createDirectory(applicationRoot.resolve("data/input/subdirectory"));
+        Path permittedDirectory = Files.createDirectory(applicationRoot.resolve("storage/outgoing/subdirectory"));
         Path permittedFile = Files.writeString(permittedDirectory.resolve("report.txt"), "Approved linked input");
-        Path link = applicationRoot.resolve("data/input/linked");
+        Path link = applicationRoot.resolve("storage/outgoing/linked");
         createDirectoryLinkOrSkip(link, permittedDirectory);
         try {
-            TransferRequest request = validatorFor(Map.of("report", Path.of("data/input/linked/report.txt")))
+            TransferRequest request = validatorFor(Map.of("report", Path.of("storage/outgoing/linked/report.txt")))
                     .validateStart(start(null, null), UUID.randomUUID());
 
             assertEquals(permittedFile.toRealPath(), request.sourcePath());

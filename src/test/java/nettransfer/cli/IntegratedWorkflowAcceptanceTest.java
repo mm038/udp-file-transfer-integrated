@@ -62,7 +62,7 @@ class IntegratedWorkflowAcceptanceTest {
 
     @Test
     void realCliTransferProducesLiveStatusReconciledEvidenceAndOfflineExplanation() throws Exception {
-        Path inputRoot = Files.createDirectories(root.resolve("data/input"));
+        Path inputRoot = Files.createDirectories(root.resolve("storage/outgoing"));
         byte[] expectedBytes = new byte[2_500];
         for (int index = 0; index < expectedBytes.length; index++) {
             expectedBytes[index] = (byte) (index * 31);
@@ -103,7 +103,7 @@ class IntegratedWorkflowAcceptanceTest {
                         java.util.List.of("Offline deterministic acceptance stub; no live GPT call."));
             });
             var configuration = new TransferConfiguration(root.toAbsolutePath(),
-                    Map.of("acceptance", Path.of("data/input/acceptance.bin")),
+                    Map.of("acceptance", Path.of("storage/outgoing/acceptance.bin")),
                     Map.of("receiver-a", new InetSocketAddress(
                             InetAddress.getLoopbackAddress(), receiverChannel.getLocalPort())));
             var output = new StringWriter();

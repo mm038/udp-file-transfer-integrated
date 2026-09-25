@@ -25,6 +25,7 @@ import java.io.InterruptedIOException;
 import java.io.RandomAccessFile;
 import java.net.InetAddress;
 import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -56,6 +57,7 @@ public class ReceiverEngine implements LiveMetricsProvider {
     private volatile TransferContext transferContext;
     private final MetricsCollector metricsCollector;
     private volatile EventLogger eventLogger = EventLogger.disabled();
+    private TransferImpairmentLifecycle impairmentLifecycle;
 
     public ReceiverEngine(UdpChannel channel) {
         this(channel, DEFAULT_INITIAL_TIMEOUT_MS, DEFAULT_INACTIVITY_TIMEOUT_MS,
@@ -98,12 +100,14 @@ public class ReceiverEngine implements LiveMetricsProvider {
                 TransferEvent.Details.builder().eventOutcome("AWAITING_START").build());
         try {
             TransferResult result = receiveFileObserved(outputFilePath);
+            finishImpairment();
             channel.setSuccessfulSendObserver(null);
             metricsCollector.observeReceiverTerminalOutcome(
                     result.isSuccess(), terminalReason(result));
             recordTerminal(result.isSuccess(), terminalReason(result));
             return result;
         } catch (IOException | RuntimeException exception) {
+            finishImpairment();
             metricsCollector.observeReceiverError();
             channel.setSuccessfulSendObserver(null);
             String reason = describeException(exception);
@@ -162,6 +166,8 @@ public class ReceiverEngine implements LiveMetricsProvider {
         log(EventType.START_ACCEPTED, TransferEvent.Direction.LOCAL,
                 TransferEvent.Details.builder().messageType(MessageType.START.name())
                         .validationResult("ACCEPTED").eventOutcome("ESTABLISHED").build());
+        impairmentLifecycle = TransferImpairmentLifecycle.begin(channel, transferContext,
+                metricsCollector, eventLogger, startDatagram.senderAddress(), startDatagram.senderPort());
         ReceiverSequenceTracker tracker = new ReceiverSequenceTracker(totalChunks);
         long lastProgressAt = System.nanoTime();
 
@@ -191,7 +197,7 @@ public class ReceiverEngine implements LiveMetricsProvider {
                     continue;
                 }
 
-                long writtenAt = handleDataPacket(data, start.getChunkSize(), totalChunks, outputFile, tracker,
+                long writtenAt = handleDataPacket(data, start.getFileSize(), start.getChunkSize(), totalChunks, outputFile, tracker,
                         transferId, datagram, startDatagram);
                 if (writtenAt != -1) {
                     lastProgressAt = writtenAt;
@@ -266,11 +272,11 @@ public class ReceiverEngine implements LiveMetricsProvider {
         TransferConfiguration.Builder configuration = provided == null
                 ? TransferConfiguration.builder()
                 : provided.toBuilder();
-        TransferConfiguration effective = configuration
+        TransferConfiguration effective = TransferImpairmentLifecycle.effectiveConfiguration(configuration
                 .receiverInitialTimeoutMs((long) initialTimeoutMillis)
                 .receiverInactivityTimeoutMs((long) inactivityTimeoutMillis)
                 .receiverCompletionGraceMs((long) completionGraceMillis)
-                .build();
+                .build(), channel.getImpairmentSettings());
 
         TransferContext.Builder context = supplied == null
                 ? TransferContext.builder(TransferContext.Endpoint.RECEIVER)
@@ -532,7 +538,7 @@ public class ReceiverEngine implements LiveMetricsProvider {
     private record CompletionOutcome(TransferResult result, ControlMessage finishRequest,
                                      ControlMessage finishAcknowledgement) {}
 
-    private long handleDataPacket(byte[] data, int chunkSize, int totalChunks, RandomAccessFile outputFile,
+    private long handleDataPacket(byte[] data, long fileSize, int chunkSize, int totalChunks, RandomAccessFile outputFile,
                                    ReceiverSequenceTracker tracker, UUID transferId,
                                    UdpChannel.ReceivedDatagram datagram,
                                    UdpChannel.ReceivedDatagram startDatagram) throws IOException {
@@ -543,6 +549,7 @@ public class ReceiverEngine implements LiveMetricsProvider {
         try {
             packet = PacketDecoder.decode(data);
         } catch (IOException | RuntimeException e) {
+            recordMalformedDataIfAttributable(data, transferId);
             return -1;
         }
         if (packet.getType() != MessageType.DATA || !transferId.equals(packet.getTransferId())) {
@@ -550,10 +557,14 @@ public class ReceiverEngine implements LiveMetricsProvider {
         }
         if (packet.getSeqNum() < 0 || packet.getSeqNum() >= totalChunks
                 || !PacketValidator.isValid(packet)) {
-            metricsCollector.observeReceiverDataValidationFailure();
-            log(EventType.DATA_INVALID, TransferEvent.Direction.LOCAL,
-                    TransferEvent.Details.builder().messageType(MessageType.DATA.name())
-                            .sequenceNumber(packet.getSeqNum()).validationResult("REJECTED").build());
+            recordInvalidData(packet.getSeqNum(), "INVALID_SEQUENCE_OR_CRC");
+            return -1;
+        }
+        // Every sequence has one required length, including a short final chunk or an empty file.
+        // Check before the tracker, file, ACK and progress timer can observe this packet as accepted.
+        long expectedPayloadLength = Math.min((long) chunkSize, fileSize - (long) packet.getSeqNum() * chunkSize);
+        if (packet.getPayload().length != expectedPayloadLength) {
+            recordInvalidData(packet.getSeqNum(), "UNEXPECTED_PAYLOAD_LENGTH");
             return -1;
         }
 
@@ -615,6 +626,27 @@ public class ReceiverEngine implements LiveMetricsProvider {
         return writtenAt;
     }
 
+    /** The peer was checked by the caller; this header peek is for rejection diagnostics only. */
+    private void recordMalformedDataIfAttributable(byte[] data, UUID expectedTransferId) {
+        if (data.length < Packet.HEADER_SIZE || data[0] != (byte) MessageType.DATA.ordinal()) {
+            return;
+        }
+        ByteBuffer header = ByteBuffer.wrap(data);
+        header.get();
+        UUID reportedTransferId = new UUID(header.getLong(), header.getLong());
+        if (expectedTransferId.equals(reportedTransferId)) {
+            // This sequence is unvalidated and is never passed to the tracker, writer or ACK sender.
+            recordInvalidData(header.getInt(), "INVALID_FRAMING");
+        }
+    }
+
+    private void recordInvalidData(int sequence, String reason) {
+        metricsCollector.observeReceiverDataValidationFailure();
+        log(EventType.DATA_INVALID, TransferEvent.Direction.LOCAL,
+                TransferEvent.Details.builder().messageType(MessageType.DATA.name())
+                        .sequenceNumber(sequence).validationResult("REJECTED").eventOutcome(reason).build());
+    }
+
     private static boolean isExpectedPeer(UdpChannel.ReceivedDatagram datagram,
                                           UdpChannel.ReceivedDatagram startDatagram) {
         InetAddress address = datagram.senderAddress();
@@ -639,6 +671,12 @@ public class ReceiverEngine implements LiveMetricsProvider {
                         .failureReason(success ? null : reason).build());
         eventLogger.finalizeSession(metricsCollector.liveSnapshot(),
                 success, success ? null : reason);
+    }
+
+    private void finishImpairment() {
+        if (impairmentLifecycle != null) {
+            impairmentLifecycle.finish();
+        }
     }
 
     private void log(EventType type, TransferEvent.Direction direction,

@@ -140,7 +140,7 @@ public final class Milestone8LiveEvaluation {
         Files.createDirectories(base);
         Path directory = Files.createTempDirectory(base, Instant.now().toString().replace(':', '-') + "-");
         System.out.println("Evaluation artifact directory: " + directory);
-        Path input = directory.resolve("data/input/demo.txt");
+        Path input = directory.resolve("storage/outgoing/demo.txt");
         Files.createDirectories(input.getParent());
         Files.writeString(input, "Milestone 8 isolated loopback demo.\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
         try (Report report = new Report(directory, key)) {
@@ -342,7 +342,7 @@ public final class Milestone8LiveEvaluation {
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
                 while (real.status(id).state() == TransferState.RUNNING && System.nanoTime() < deadline) Thread.sleep(10);
                 var snapshot = real.status(id);
-                boolean sameHash = Files.exists(received) && FileHashUtil.sha256Hex(root.resolve("data/input/demo.txt").toString())
+                boolean sameHash = Files.exists(received) && FileHashUtil.sha256Hex(root.resolve("storage/outgoing/demo.txt").toString())
                         .equals(FileHashUtil.sha256Hex(received.toString()));
                 row.add("terminal_snapshot", JSON.toJsonTree(snapshot));
                 row.addProperty("receiver_success", receiverSuccess);
@@ -431,7 +431,7 @@ public final class Milestone8LiveEvaluation {
     }
 
     private static CommandDispatcher dispatcher(Path root, int port, TransferService service) {
-        var config = new TransferConfiguration(root.toAbsolutePath(), Map.of("demo", Path.of("data/input/demo.txt")),
+        var config = new TransferConfiguration(root.toAbsolutePath(), Map.of("demo", Path.of("storage/outgoing/demo.txt")),
                 Map.of("receiver-a", new InetSocketAddress("127.0.0.1", port)));
         return new CommandDispatcher(new CommandParser(), new CommandValidator(config), service);
     }
