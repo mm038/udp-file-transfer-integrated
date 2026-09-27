@@ -16,9 +16,11 @@ substituted for missing real measurements.
 ## Current evaluation checkpoint
 
 Documentation updated after the September 25, 2026 Section 7 assessment.
-**READY FOR PERSON 4'S EXPERIMENTS, with the limitations below.** Sections 3–6
-and the Section 7 coverage assessment are complete; the experiment matrix and
-final submission/demonstration remain **PENDING PERSON 4 / TEAM**.
+**FINAL EVALUATION COMPLETED.** The controlled experiment matrix has been
+completed, including small- and large-file baseline, 2% loss, and 200 ms delay
+scenarios, together with a window-size comparison. Representative raw logs,
+reproduction commands, experiment results, and report figures are included in
+the repository.
 
 The evaluated implementation is the working tree on branch
 `feature/metrics-llm-integration`, based on commit
@@ -81,15 +83,16 @@ use verified measurements for comparisons and reviewed explanations for
 presentation. No regeneration is required to begin experiments. Live integrity
 **FAILED** remains **NOT EXERCISED**; D does not exercise it.
 
-A–C used one 262,267-byte file and the same window/timeout. Person 4 still needs
-small and large files in baseline, at least 2% random loss, and meaningful delay
-or jitter, plus a timeout or window comparison. These are six file/scenario
-combinations; the plan's eight-run design is a team choice, not an instructor
-count. The 2–4-page protocol specification/sequence diagram, 4–6-page report,
-at least three shared raw logs with reproduction commands, final demonstration
-and disclosure remain pending. See the [current plan](docs/integrated-prototype-evaluation-plan.md)
-and [walkthrough](docs/live-demo-walkthrough.md). Historical milestone records
-and preparation/session statuses do not override final validations and reviews.
+The final evaluation includes small and large files under baseline, 2% random
+loss, and 200 ms fixed-delay conditions, together with an additional delayed
+large-file window comparison. The repository includes the master experiment
+results, report figures, and representative raw logs for baseline, 2% loss,
+and 200 ms delay with reproduction commands. Final submission documents and
+demonstration materials are maintained separately by the team. See the
+[current plan](docs/integrated-prototype-evaluation-plan.md) and
+[walkthrough](docs/live-demo-walkthrough.md) for the evaluation methodology.
+Historical milestone records and preparation/session statuses do not override
+final validations and reviews.
 
 ## Prerequisites, build, and tests
 
